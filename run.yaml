@@ -1,0 +1,120 @@
+version: 2
+image_name: llama-stack-examples
+
+apis:
+- agents
+- inference
+- safety
+- tool_runtime
+- vector_io
+- files
+- vector_stores
+
+providers:
+  inference:
+  - provider_id: ${env.OLLAMA_URL:=ollama}
+    provider_type: remote::ollama
+    config:
+      url: ${env.OLLAMA_URL:=http://localhost:11434}
+  - provider_id: vllm
+    provider_type: remote::vllm
+    config:
+      url: ${env.DEV_CLUSTER_QWEN_URL}
+      api_token: ${env.DEV_CLUSTER_QWEN_API_KEY}
+      max_tokens: 4096
+      tsl_verify: false
+  # - provider_id: gemini
+  #   provider_type: remote::gemini
+  #   config:
+  #     api_key: ${env.GEMINI_API_KEY:=}
+  - provider_id: openai
+    provider_type: remote::openai
+    config:
+      api_key: ${env.OPENAI_API_KEY:=}
+      base_url: ${env.OPENAI_BASE_URL:=https://api.openai.com/v1}
+  safety:
+  - provider_id: llama-guard
+    provider_type: inline::llama-guard
+    config:
+      excluded_categories: []
+  tool_runtime:
+    - provider_id: model-context-protocol
+      provider_type: remote::model-context-protocol
+      config: {}
+    - provider_id: rag-runtime
+      provider_type: inline::rag-runtime
+      config: {}
+  agents:
+  - provider_id: meta-reference
+    provider_type: inline::meta-reference
+    config:
+      persistence:
+        agent_state:
+          backend: kv_default
+          namespace: agents
+        responses:
+          backend: sql_default
+          table_name: responses
+  vector_io:
+  - provider_id: milvus
+    provider_type: inline::milvus
+    config:
+      db_path: ${env.MILVUS_DB_PATH:=~/.llama/milvus.db}
+      embedding_model: openai/text-embedding-3-small
+      embedding_dimension: 1536
+      persistence:
+        namespace: milvus
+        backend: kv_default
+  files:
+  - provider_id: localfs
+    provider_type: inline::localfs
+    config:
+      storage_dir: ${env.FILES_STORAGE_DIR:=~/.llama/files}
+      metadata_store:
+        backend: sql_default
+        table_name: files
+
+registered_resources:
+  models: []
+  shields:
+  - provider_id: llama-guard
+    shield_id: ${env.SAFETY_MODEL:=ollama/llama-guard3:8b}
+    provider_shield_id: null
+
+  vector_dbs: []
+  datasets: []
+  scoring_fns: []
+  benchmarks: []
+  tool_groups:
+    - provider_id: rag-runtime
+      toolgroup_id: builtin::rag
+
+storage:
+  backends:
+    kv_default:
+      type: kv_sqlite
+      db_path: ${env.KV_SQL_STORE_DIR:=~/.llama}/kvstore.db
+    sql_default:
+      type: sql_sqlite
+      db_path: ${env.SQLITE_STORE_DIR:=~/.llama}/sql_store.db
+  stores:
+    metadata:
+      namespace: registry
+      backend: kv_default
+    inference:
+      table_name: inference_store
+      backend: sql_default
+      max_write_queue_size: 10000
+      num_writers: 4
+    conversations:
+      table_name: openai_conversations
+      backend: sql_default
+
+server:
+  port: 8321
+
+vector_stores:
+  default_provider_id: milvus
+  default_embedding_model:
+    provider_id: openai
+    model_id: text-embedding-3-small
