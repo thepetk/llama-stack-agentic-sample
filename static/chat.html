@@ -599,6 +599,21 @@
             color: var(--success);
         }
 
+        .classification-badge.hr {
+            background: rgba(139, 92, 246, 0.2);
+            color: #a78bfa;
+        }
+
+        .classification-badge.sales {
+            background: rgba(236, 72, 153, 0.2);
+            color: #f472b6;
+        }
+
+        .classification-badge.procurement {
+            background: rgba(14, 165, 233, 0.2);
+            color: #38bdf8;
+        }
+
         .classification-badge.unknown {
             background: rgba(245, 158, 11, 0.2);
             color: var(--warning);
@@ -766,7 +781,7 @@
         <div class="header-icon">🤖</div>
         <div class="header-info">
             <h1>Developer Portal Assistant</h1>
-            <p>AI-powered legal &amp; support help</p>
+            <p>AI-powered assistance for all departments</p>
         </div>
         <div class="header-actions">
             <button class="model-info-btn" onclick="toggleModelPanel()">
@@ -806,11 +821,13 @@
         <div class="welcome-message" id="welcome">
             <div class="welcome-icon">👋</div>
             <h2>Welcome to the Developer Portal</h2>
-            <p>I can help you with legal questions, software support, and OpenShift/Kubernetes assistance. What can I help you with today?</p>
+            <p>I can help you with legal questions, software support, HR inquiries, sales information, and procurement requests. What can I help you with today?</p>
             <div class="suggestion-chips">
                 <button class="suggestion-chip" onclick="sendSuggestion('Can you explain the Apache 2.0 license?')">📜 Apache 2.0 License</button>
                 <button class="suggestion-chip" onclick="sendSuggestion('I need support for my application in the openshift-console namespace')">🔧 App Support</button>
-                <button class="suggestion-chip" onclick="sendSuggestion('I need CPU and memory consumption data')">📊 Resource Usage</button>
+                <button class="suggestion-chip" onclick="sendSuggestion('What are the PTO policies?')">👥 HR Policies</button>
+                <button class="suggestion-chip" onclick="sendSuggestion('I need sales figures for Q4')">💼 Sales Info</button>
+                <button class="suggestion-chip" onclick="sendSuggestion('How do I submit a procurement request?')">🛒 Procurement</button>
             </div>
         </div>
     </div>
@@ -1038,12 +1055,15 @@
 
                     if (data.status === 'ready') {
                         removeTypingIndicator();
-                        
+
                         // Use the decision field for classification badge
                         let classification = data.decision || 'unknown';
                         // Normalize classification names
                         if (classification === 'legal') classification = 'legal';
                         else if (['support', 'pod', 'perf', 'git'].includes(classification)) classification = 'support';
+                        else if (classification === 'hr') classification = 'hr';
+                        else if (classification === 'sales') classification = 'sales';
+                        else if (classification === 'procurement') classification = 'procurement';
                         else if (classification === 'error') classification = 'error';
                         else classification = 'unknown';
 
