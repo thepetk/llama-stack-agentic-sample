@@ -403,9 +403,12 @@ def pod_agent(state: "State") -> "State":
         state["mcp_output"] = mcp_output  # type: ignore[typeddict-item]
         submission_states[subId] = state
     except Exception as e:
+        state["mcp_output"] = "K8s MCP Server not available"
+        submission_states[subId] = state
         logger.info(
             f"K8s Agent unsuccessful return MCP request for submission {state['submissionID']} with error: '{e}'"
         )
+
     return state
 
 
@@ -450,6 +453,8 @@ def perf_agent(state: "State") -> "State":
         state["mcp_output"] = mcp_output  # type: ignore[typeddict-item]
         submission_states[subId] = state
     except Exception as e:
+        state["mcp_output"] = "K8s MCP server not available"
+        submission_states[subId] = state
         logger.info(
             f"K8s perf Agent unsuccessful return MCP request for submission {state['submissionID']} with error: '{e}'"
         )
