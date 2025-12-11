@@ -544,12 +544,12 @@ def create_department_agent(
                 # Build the user query from state
                 user_input = state.get("input", "")
 
-                # Create RAG-augmented prompt
-                rag_prompt = f"""Based on the relevant documents in the knowledge base, please help with the following {department_display_name.lower()} query:
+                # Simple RAG prompt - let the system work naturally
+                rag_prompt = f"""Please help with the following {department_display_name.lower()} query:
 
 {user_input}
 
-Please provide a helpful response based on the documents found. If no relevant documents are found, provide general guidance."""
+Provide a helpful response based on any relevant documents found. Give only your final answer without reasoning steps."""
 
                 if additional_prompt is not None:
                     rag_prompt += f"""\n{additional_prompt}"""
@@ -568,15 +568,71 @@ Please provide a helpful response based on the documents found. If no relevant d
                 response_text = extract_rag_response_text(rag_response)  # type: ignore[arg-type]
 
                 # Extract source documents from RAG response
+                sources = []
                 if hasattr(rag_service, "extract_sources_from_response"):
                     sources = rag_service.extract_sources_from_response(
                         rag_response, rag_category
                     )
-                    state["rag_sources"] = sources
                     if sources:
                         logger.info(
                             f"{department_display_name}: Found {len(sources)} source documents"
                         )
+
+                # Check if sources should be shown
+                # Hide sources when LLM indicates docs weren't relevant
+                # Default to showing sources since RAG found them
+                rag_sources_useful = True
+                if response_text and sources:
+                    response_lower = response_text.lower()
+                    
+                    no_docs_indicators = [
+                        # Explicit statements about not finding relevant info
+                        "no relevant document",
+                        "could not find any relevant",
+                        "couldn't find any relevant",
+                        "did not find any relevant",
+                        "didn't find any relevant",
+                        "no information found in",
+                        "no matching document",
+                        "unable to find relevant",
+                        "not found in the knowledge base",
+                        "no results found",
+                        # Topic mismatch indicators (more specific to avoid false positives)
+                        "nothing related to",
+                        "doesn't have any info on",
+                        "does not have any info on",
+                        "documents are unrelated",
+                        "documents don't cover",
+                        "documents do not cover",
+                        "aren't relevant to",
+                        "are not relevant to",
+                        "isn't relevant to",
+                        "is not relevant to",
+                        "unrelated to your query",
+                        "unrelated to the query",
+                        "wrong topic",
+                        "different topic",
+                        "available resources don't cover",
+                        "available documents don't cover",
+                        "knowledge base doesn't have",
+                        "knowledge base does not have",
+                        "knowledge base doesn't cover",
+                        "knowledge base does not cover",
+                    ]
+                    
+                    for indicator in no_docs_indicators:
+                        if indicator in response_lower:
+                            rag_sources_useful = False
+                            logger.info(
+                                f"{department_display_name}: Response indicates irrelevant docs ('{indicator}'), hiding sources"
+                            )
+                            break
+
+                # Only set RAG sources if they were actually useful
+                if rag_sources_useful and sources:
+                    state["rag_sources"] = sources
+                else:
+                    state["rag_sources"] = []
 
                 if response_text:
                     # Use LangChain's AIMessage for compatibility with LangGraph's add_messages
@@ -585,6 +641,7 @@ Please provide a helpful response based on the documents found. If no relevant d
                     logger.info(f"{department_display_name}: RAG response successful")
                 else:
                     # Fallback to regular LLM if RAG didn't produce text
+                    # state["messages"] already has the correct prompt from init_message
                     logger.warning(
                         f"{department_display_name}: RAG response empty, falling back to standard LLM"
                     )
@@ -592,15 +649,21 @@ Please provide a helpful response based on the documents found. If no relevant d
                     cm = getattr(
                         message, "content", getattr(message, "text", str(message))
                     )
+                    # Clear RAG sources since RAG didn't work
+                    state["rag_sources"] = []
 
             except Exception as e:
                 logger.error(
                     f"{department_display_name}: RAG call failed: {e}, falling back to standard LLM"
                 )
+                # state["messages"] already has the correct prompt from init_message
                 message = llm_to_use.invoke(state["messages"])
                 cm = getattr(message, "content", getattr(message, "text", str(message)))
+                # Clear RAG sources since RAG failed
+                state["rag_sources"] = []
         else:
-            # Standard LLM call without RAG
+            # Standard LLM call without RAG - use state["messages"] which now includes user input
+            # (set by init_message with the actual user query)
             message = llm_to_use.invoke(state["messages"])
             cm = getattr(message, "content", getattr(message, "text", str(message)))
 
@@ -620,11 +683,20 @@ Please provide a helpful response based on the documents found. If no relevant d
         if content_override:
             content = content_override
         else:
-            content = (
-                f"Summarize that the user query is classified as {department_display_name.lower()}, "
-                f"along with any answers provided by the LLM for the question, and include that we are responding "
-                f"to submissionID {state['submissionID']}. Finally, mention a GitHub issue will be opened for follow up."
-            )
+            # Build context-aware content based on whether this is a terminal agent
+            user_query = state.get("input", "")
+            if is_terminal:
+                # Terminal agents (like legal_agent) - no GitHub issue follows
+                content = (
+                    f"The user has submitted a {department_display_name.lower()} query (submissionID: {state['submissionID']}). "
+                    f"Please provide a helpful response to their question:\n\n{user_query}"
+                )
+            else:
+                # Non-terminal agents (like support_agent) - GitHub issue will follow
+                content = (
+                    f"The user has submitted a {department_display_name.lower()} query (submissionID: {state['submissionID']}). "
+                    f"Please provide a helpful response to their question. A GitHub issue will be opened for follow-up.\n\n{user_query}"
+                )
         return {"messages": [{"role": "user", "content": content}]}
 
     agent_builder = StateGraph(State)  # type: ignore[type-var]

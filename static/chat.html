@@ -586,7 +586,13 @@
             font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            margin-bottom: 8px;
+            margin-bottom: 12px;
+        }
+
+        /* Response content wrapper - ensures content appears below badge */
+        .response-content {
+            display: block;
+            line-height: 1.6;
         }
 
         .classification-badge.legal {
@@ -955,8 +961,8 @@
                 <div class="message-avatar">${isUser ? '👤' : '🤖'}</div>
                 <div class="message-content">
                     <div class="message-bubble">
-                        ${badgeHtml}
-                        ${formatContent(content)}
+                        ${badgeHtml ? badgeHtml + '<br>' : ''}
+                        <div class="response-content">${formatContent(content)}</div>
                         ${mcpOutputHtml}
                         ${githubHtml}
                         ${sourcesHtml}
@@ -1047,7 +1053,8 @@
             messageInput.focus();
         }
 
-        async function pollForResponse(submissionId, maxAttempts = 120) {
+        async function pollForResponse(submissionId, maxAttempts = 180) {
+            // 180 attempts = ~3 minutes total (enough for git agent which can take 30+ seconds)
             for (let i = 0; i < maxAttempts; i++) {
                 try {
                     const response = await fetch(`/api/response/${submissionId}`);
@@ -1083,6 +1090,7 @@
 
                 } catch (error) {
                     console.error('Polling error:', error);
+                    // Don't break on network errors - keep trying
                 }
             }
 
