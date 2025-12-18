@@ -14,6 +14,7 @@ from src.constants import (
     DEFAULT_LLAMA_STACK_URL,
     DEFAULT_MCP_TOOL_MODEL,
 )
+from src.exceptions import NoVectorStoresFoundError
 from src.ingest import IngestionService
 from src.responses import RAGService
 from src.types import Pipeline, WorkflowState
@@ -60,7 +61,19 @@ def initialize_workflow(_pipelines: "list[Pipeline]") -> "tuple[Any, RAGService]
         file_metadata_path=RAG_FILE_METADATA,
         pipelines=_pipelines,
     )
-    if not rag_service.initialize():
+    try:
+        rag_service_initialized = rag_service.initialize()
+    except NoVectorStoresFoundError as e:
+        # if no vector stores found, set ingestion state to pending and rerun
+        logger.warning(f"Error during RAG initialization: {e}")
+        ingestion_state = get_ingestion_state()
+        ingestion_state["status"] = "pending"
+        ingestion_state["message"] = "No vector stores found - re-ingestion required"
+        ingestion_state["pipelines"] = None
+        st.cache_resource.clear()
+        st.rerun()
+
+    if not rag_service_initialized:
         logger.warning("RAG Service initialization failed.")
 
     # create Workflow instance and compile it

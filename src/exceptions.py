@@ -5,3 +5,11 @@ class AgentRunMethodParameterError(Exception):
     """
 
     pass
+
+
+class NoVectorStoresFoundError(Exception):
+    """
+    Raised when no vector stores are found in the system.
+    """
+
+    pass

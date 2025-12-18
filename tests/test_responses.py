@@ -1,6 +1,9 @@
 import os
 from unittest.mock import Mock, patch
 
+import pytest
+
+from src.exceptions import NoVectorStoresFoundError
 from src.responses import RAGService
 from src.types import Pipeline, SourceConfig, SourceTypes
 
@@ -215,9 +218,10 @@ class TestLoadVectorStores:
         service = RAGService(pipelines=pipelines)
         service.client = mock_llama_stack_client
 
-        result = service.load_vector_stores()
+        with pytest.raises(NoVectorStoresFoundError) as exc_info:
+            service.load_vector_stores()
 
-        assert result is False
+        assert "No vector stores found" in str(exc_info.value)
 
     def test_load_vector_stores_without_client(self):
         pipelines = []

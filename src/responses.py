@@ -15,6 +15,7 @@ from src.constants import (
     DEFAULT_RAG_METADATA_FILE_PATHS,
     PIPELINE_CATEGORIES,
 )
+from src.exceptions import NoVectorStoresFoundError
 from src.types import Pipeline, SourceTypes
 from src.utils import logger
 
@@ -188,6 +189,8 @@ class RAGService:
     def load_vector_stores(self) -> "bool":
         """
         loads vector stores from Llama Stack and map them by category.
+
+        raises:: NoVectorStoresFoundError if no vector stores are found.
         """
         if not self.client:
             logger.error("RAG Service: Client not initialized")
@@ -197,8 +200,9 @@ class RAGService:
         vector_store_list = list(vector_stores)
 
         if not vector_stores or len(vector_store_list) == 0:
-            logger.warning("RAG Service: No vector stores found")
-            return False
+            err = "RAG Service: No vector stores found"
+            logger.warning(err)
+            raise NoVectorStoresFoundError(err)
 
         for vs in vector_stores:
             vs_name_lower = vs.name.lower() if vs.name else vs.id.lower()
