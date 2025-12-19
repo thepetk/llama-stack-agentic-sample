@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import time
 import uuid
@@ -9,6 +10,7 @@ import streamlit as st
 from llama_stack_client import LlamaStackClient
 
 from src.constants import (
+    DEFAULT_GUARDRAIL_MODEL,
     DEFAULT_INFERENCE_MODEL,
     DEFAULT_INGESTION_CONFIG,
     DEFAULT_LLAMA_STACK_URL,
@@ -26,7 +28,7 @@ INFERENCE_SERVER_OPENAI = os.getenv(
     "LLAMA_STACK_SERVER_OPENAI", "http://localhost:8321/v1/openai/v1"
 )
 INFERENCE_MODEL = os.getenv("INFERENCE_MODEL", DEFAULT_INFERENCE_MODEL)
-GUARDRAIL_MODEL = os.getenv("GUARDRAIL_MODEL", "ollama/llama-guard3:8b")
+GUARDRAIL_MODEL = os.getenv("GUARDRAIL_MODEL", DEFAULT_GUARDRAIL_MODEL)
 MCP_TOOL_MODEL = os.getenv("MCP_TOOL_MODEL", DEFAULT_MCP_TOOL_MODEL)
 GIT_TOKEN = os.getenv("GIT_TOKEN", "not applicable")
 GITHUB_URL = os.getenv("GITHUB_URL", "not applicable")
@@ -46,6 +48,15 @@ def get_config() -> "dict[str, str]":
         "ingestion_config": INGESTION_CONFIG,
         "rag_metadata": RAG_FILE_METADATA,
     }
+
+
+@st.cache_resource
+def get_ingestion_service() -> "IngestionService":
+    """
+    gets or creates a cached IngestionService instance
+    """
+    logger.info(f"Creating IngestionService with config: {INGESTION_CONFIG}")
+    return IngestionService(INGESTION_CONFIG)
 
 
 @st.cache_resource
@@ -148,7 +159,7 @@ async def check_and_run_ingestion_if_needed() -> "None":
     try:
         logger.info("Checking if ingestion is needed...")
 
-        ingestion_service = IngestionService(INGESTION_CONFIG)
+        ingestion_service = get_ingestion_service()
         pipelines = ingestion_service.pipelines
         temp_client = LlamaStackClient(base_url=LLAMA_STACK_URL)
         temp_rag_service = RAGService(
@@ -216,7 +227,7 @@ async def run_ingestion_pipeline() -> "None":
 
         ingestion_state["message"] = "Initializing ingestion service..."
 
-        ingestion_service = await asyncio.to_thread(IngestionService, INGESTION_CONFIG)
+        ingestion_service = get_ingestion_service()
 
         ingestion_state["message"] = (
             "Running ingestion pipeline (this may take a while)..."
@@ -372,9 +383,18 @@ def _render_exchange_response(
                             else:
                                 st.markdown(f"{idx}. {filename}")
 
+                mcp_output = state.get("mcp_output", "")
+                if mcp_output:
+                    with st.expander("📋 Diagnostics Output", expanded=False):
+                        try:
+                            parsed = json.loads(mcp_output)
+                            st.json(parsed)
+                        except (json.JSONDecodeError, ValueError):
+                            st.code(mcp_output, language="text")
+
                 github_issue = state.get("github_issue", "")
                 if github_issue:
-                    st.success(f"✅ GitHub issue created: {github_issue}")
+                    st.markdown(f"[🎫 GitHub Issue Created]({github_issue})")
 
             if is_complete:
                 agent_timings = state.get("agent_timings", {})
@@ -554,7 +574,7 @@ def main():
     pipelines = ingestion_state.get("pipelines")
     if pipelines is None:
         logger.info("Pipelines not available, parsing from ingestion config")
-        ingestion_service = IngestionService(INGESTION_CONFIG)
+        ingestion_service = get_ingestion_service()
         pipelines = ingestion_service.pipelines
         logger.info(f"Loaded {len(pipelines)} pipelines from config")
 
