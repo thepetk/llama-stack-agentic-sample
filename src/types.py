@@ -119,7 +119,19 @@ class WorkflowAgentPrompts:
     {user_input}
 
     Please provide a helpful response based on the documents found. If no relevant
-    documents are found, provide general guidance."""
+    documents are found, provide general guidance.
+    """
+    DEFAULT_TERMINAL_AGENT_INITIAL_CONTENT = """The user has submitted a
+    {department_display_name} query (submission_id: {submission_id}).
+
+    Please provide a helpful response to their question:\n\n{user_query}"
+    """
+    DEFAULT_NON_TERMINAL_AGENT_INITIAL_CONTENT = """The user has submitted
+    a {department_display_name} query (submissionID: {submission_id}). 
+
+    Please provide a helpful response to their question. A GitHub issue
+    will be opened for follow-up.\n\n{user_query}
+    """
 
 
 class WorkflowState(TypedDict):

@@ -9,8 +9,6 @@ from openai import OpenAI
 from src.constants import (
     DEFAULT_INFERENCE_MODEL,
     DEFAULT_LLAMA_STACK_URL,
-    DEFAULT_NON_TERMINAL_AGENT_INITIAL_CONTENT,
-    DEFAULT_TERMINAL_AGENT_INITIAL_CONTENT,
     NO_DOCS_INDICATORS,
 )
 from src.methods import (
@@ -118,9 +116,9 @@ class Workflow:
             else:
                 user_query = state.get("input", "")
                 content = (
-                    DEFAULT_TERMINAL_AGENT_INITIAL_CONTENT
+                    WorkflowAgentPrompts.DEFAULT_TERMINAL_AGENT_INITIAL_CONTENT
                     if is_terminal
-                    else DEFAULT_NON_TERMINAL_AGENT_INITIAL_CONTENT
+                    else WorkflowAgentPrompts.DEFAULT_NON_TERMINAL_AGENT_INITIAL_CONTENT
                 ).format(
                     department_display_name=department_display_name,
                     submission_id=state["submission_id"],

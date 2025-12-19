@@ -93,20 +93,3 @@ NO_DOCS_INDICATORS = [
     "knowledge base doesn't cover",
     "knowledge base does not cover",
 ]
-
-# DEFAULT_TERMINAL_AGENT_INITIAL_CONTENT: The default initial
-# content template for terminal agent responses.
-DEFAULT_TERMINAL_AGENT_INITIAL_CONTENT = """The user has submitted a
-{department_display_name} query (submission_id: {submission_id}).
-
-Please provide a helpful response to their question:\n\n{user_query}"
-"""
-
-# DEFAULT_NON_TERMINAL_AGENT_INITIAL_CONTENT: The default initial
-# content template for non-terminal agent responses.
-DEFAULT_NON_TERMINAL_AGENT_INITIAL_CONTENT = """The user has submitted
-a {department_display_name} query (submissionID: {submission_id}). 
-
-Please provide a helpful response to their question. A GitHub issue
-will be opened for follow-up.\n\n{user_query}
-"""
