@@ -21,6 +21,7 @@ from llama_stack_client.types.file import File
 from src.constants import (
     DEFAULT_CHUNK_SIZE_IN_TOKENS,
     DEFAULT_EMBEDDING_DIMENSION,
+    DEFAULT_EMBEDDING_MODEL,
     DEFAULT_HTTP_REQUEST_TIMEOUT,
     DEFAULT_LLAMA_STACK_RETRY_DELAY,
     DEFAULT_LLAMA_STACK_WAITING_RETRIES,
@@ -51,6 +52,7 @@ class IngestionService:
                 logger.error("Invalid ingestion config file")
                 sys.exit(1)
 
+        self.config_path = config_path
         # Llama Stack setup
         self.llama_stack_url: "str" = _config["llamastack"]["base_url"]
         self.client = self._initialize_llama_stack_client()
@@ -58,17 +60,22 @@ class IngestionService:
 
         # Vector DB setup
         _embedding_dimension = (
-            _config["vector_db"]["embedding_dimension"]
-            if _config["vector_db"]["embedding_dimension"]
+            _config["vector_db"].get("embedding_dimension")
+            if _config["vector_db"].get("embedding_dimension")
             else DEFAULT_EMBEDDING_DIMENSION
         )
+        _embedding_model = (
+            _config["vector_db"].get("embedding_model")
+            if _config["vector_db"].get("embedding_model")
+            else DEFAULT_EMBEDDING_MODEL
+        )
         _chunk_size_in_tokens = (
-            _config["vector_db"]["chunk_size_in_tokens"]
-            if _config["vector_db"]["chunk_size_in_tokens"]
+            _config["vector_db"].get("chunk_size_in_tokens")
+            if _config["vector_db"].get("chunk_size_in_tokens")
             else DEFAULT_CHUNK_SIZE_IN_TOKENS
         )
         self.vector_db_config = VectorDBConfig(
-            embedding_model=_config["vector_db"]["embedding_model"],
+            embedding_model=_embedding_model,
             embedding_dimension=_embedding_dimension,
             chunk_size_in_tokens=_chunk_size_in_tokens,
         )

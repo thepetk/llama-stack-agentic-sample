@@ -26,6 +26,14 @@ DEFAULT_HTTP_REQUEST_TIMEOUT = 60
 # used by the RAGService.
 DEFAULT_INFERENCE_MODEL = "vllm/qwen3-8b-fp8"
 
+# DEFAULT_GUARDRAIL_MODEL: The default guardrail model
+# used for response validation.
+DEFAULT_GUARDRAIL_MODEL = "ollama/llama-guard3:8b"
+
+# DEFAULT_EMBEDDING_MODEL: The default embedding model
+# used for generating vector embeddings.
+DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
+
 # DEFAULT_MCP_TOOL_MODEL: The default model used for
 # MCP tool calls.
 DEFAULT_MCP_TOOL_MODEL = "vllm/qwen3-8b-fp8"
