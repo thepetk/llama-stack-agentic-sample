@@ -465,7 +465,7 @@ def _render_exchange_response(
                 # display Kubernetes diagnostics from pod/perf agents
                 mcp_output = state.get("mcp_output", "")
                 if mcp_output:
-                    with st.expander("📋 Diagnostics Output", expanded=False):
+                    with st.expander("📋 Diagnostics Output", expanded=True):
                         try:
                             parsed = json.loads(mcp_output)
                             st.json(parsed)  # Pretty print JSON
