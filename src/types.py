@@ -74,14 +74,13 @@ class WorkflowAgentPrompts:
     classification agent nodes in the LangGraph StateGraph
     Agentic AI application : {state_input}
     """
-    GIT_PROMPT = """
+    GIT_UPSERT_PROMPT = """
     Using the supplied github MCP tool, call the
     'issue_write' tool to create an issue against the
     {github_url} repository. For the title of the issue,
     use the string 'test issue {sub_id}'. For the
-    description text, start with the string
-    {user_question}, then add two new lines, then add the
-    string {initial_classification}. For the parameter
+    description text, use the string
+    {user_question}. For the parameter
     that captures the type of the issue, supply the string
     value of 'Bug'.
 
@@ -90,6 +89,25 @@ class WorkflowAgentPrompts:
     or milestones, so ignore any understanding you have
     that those are required. The method for the tool call
     is 'create'.
+
+    Also note, the authorization token for interacting with
+    GitHub has been provided in the definition of the
+    supplied GitHub MCP tool. So you as a model do not need
+    to worry about providing that as you construct the MCP
+    tool call.
+    """
+    GIT_COMMENT_PROMPT = """
+    Using the supplied GitHub MCP tool, call the
+    'add_issue_comment' tool to add a comment to the supplied issue {issue_id}
+    against this {github_url} repository. 
+    
+    The 'body' of the tool call, i.e. the actual comment,
+    use the {comment_body} string.
+
+    Manual testing with the 'add_issue_comment' MCP tool
+    confirmed we no longer need to supply the 'owner' argument
+    so ignore any understanding you have
+    that those are required. 
 
     Also note, the authorization token for interacting with
     GitHub has been provided in the definition of the

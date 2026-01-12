@@ -24,7 +24,7 @@ DEFAULT_HTTP_REQUEST_TIMEOUT = 60
 
 # DEFAULT_INFERENCE_MODEL: The default inference model
 # used by the RAGService.
-DEFAULT_INFERENCE_MODEL = "vllm/qwen3-8b-fp8"
+DEFAULT_INFERENCE_MODEL = "vllm/redhataiqwen3-8b-fp8-dynamic"
 
 # DEFAULT_GUARDRAIL_MODEL: The default guardrail model
 # used for response validation.
@@ -41,7 +41,7 @@ DEFAULT_INGESTION_MODE = "sync"
 
 # DEFAULT_MCP_TOOL_MODEL: The default model used for
 # MCP tool calls.
-DEFAULT_MCP_TOOL_MODEL = "vllm/qwen3-8b-fp8"
+DEFAULT_MCP_TOOL_MODEL = "vllm/redhataiqwen3-8b-fp8-dynamic"
 
 # DEFAULT_INGESTION_CONFIG: The default path to the ingestion
 # configuration file.

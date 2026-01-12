@@ -300,18 +300,18 @@ def git_agent(
         "server_label": "github",
         "server_url": "https://api.githubcopilot.com/mcp/",
         "headers": {"Authorization": f"Bearer {git_token}"},
-        "allowed_tools": ["issue_write"],
+        "allowed_tools": ["issue_write", "add_issue_comment"],
     }
 
     try:
         logger.info("git_agent GIT calling response api")
+
         resp = openai_client.responses.create(  # type: ignore[arg-type]
             model=tools_llm,
-            input=WorkflowAgentPrompts.GIT_PROMPT.format(
+            input=WorkflowAgentPrompts.GIT_UPSERT_PROMPT.format(
                 github_url=github_url,
                 sub_id=state["submission_id"],
                 user_question=state["input"],
-                initial_classification=state["mcp_output"],
             ),
             tools=[openai_mcp_tool],  # type: ignore[arg-type]
         )
@@ -321,6 +321,25 @@ def git_agent(
         state["github_issue"] = extract_mcp_output(
             resp_obj, agent_name="git_agent", extract_url=True
         )
+        gh_issue = state.get("github_issue", "gh issue not set")
+        bodies = [
+            state["rag_sources"],
+            state["classification_message"],
+            state["mcp_output"],
+        ]
+
+        for body in bodies:
+            resp = openai_client.responses.create(  # type: ignore[arg-type]
+                model=tools_llm,
+                input=WorkflowAgentPrompts.GIT_COMMENT_PROMPT.format(
+                    github_url=github_url,
+                    issue_id=gh_issue,
+                    comment_body=body,
+                ),
+                tools=[openai_mcp_tool],  # type: ignore[arg-type]
+            )
+            logger.info(f"git_agent COMMENT {body} response returned {resp}")
+
     except Exception as e:
         logger.info(f"git_agent Tool failed with error: '{e}'")
 
