@@ -303,10 +303,11 @@ def git_agent(
         "allowed_tools": ["issue_write", "add_issue_comment"],
     }
 
+    github_mcp_available = True
     try:
         logger.info("git_agent GIT calling response api")
 
-        resp = openai_client.responses.create(  # type: ignore[arg-type]
+        resp = openai_client.responses.create(
             model=tools_llm,
             input=WorkflowAgentPrompts.GIT_UPSERT_PROMPT.format(
                 github_url=github_url,
@@ -329,7 +330,7 @@ def git_agent(
         ]
 
         for body in bodies:
-            resp = openai_client.responses.create(  # type: ignore[arg-type]
+            resp = openai_client.responses.create(
                 model=tools_llm,
                 input=WorkflowAgentPrompts.GIT_COMMENT_PROMPT.format(
                     github_url=github_url,
@@ -341,13 +342,21 @@ def git_agent(
             logger.info(f"git_agent COMMENT {body} response returned {resp}")
 
     except Exception as e:
-        logger.info(f"git_agent Tool failed with error: '{e}'")
+        github_mcp_available = False
+        state["github_issue"] = ""
+        logger.info(
+            f"Git Agent unsuccessful MCP request "
+            f"for submission {state['submission_id']} with error: '{e}'"
+        )
 
     agent_end_time = time.time()
     state["agent_timings"]["Git"] = agent_end_time - agent_start_time
     state["workflow_complete"] = True
 
-    completion_msg = "✅ Git Agent finished: GitHub issue created"
+    if github_mcp_available:
+        completion_msg = "Git Agent finished: GitHub issue created"
+    else:
+        completion_msg = "Git Agent finished: GitHub MCP Server Unavailable"
     state["status_history"].append(completion_msg)
     state["status_message"] = completion_msg
 
@@ -403,7 +412,7 @@ def pod_agent(
         logger.debug(
             f"K8S Agent making MCP request for submission: {state['submission_id']}"
         )
-        resp = openai_client.responses.create(  # type: ignore[arg-type]
+        resp = openai_client.responses.create(
             model=tools_llm,
             input=WorkflowAgentPrompts.POD_PROMPT.format(namespace=state["namespace"]),
             tools=[openai_mcp_tool],  # type: ignore[arg-type]
@@ -482,7 +491,7 @@ def perf_agent(
             f"K8S perf Agent making MCP request "
             f"for submission: {state['submission_id']}"
         )
-        resp = openai_client.responses.create(  # type: ignore[arg-type]
+        resp = openai_client.responses.create(
             model=tools_llm,
             input=WorkflowAgentPrompts.PERF_PROMPT.format(namespace=state["namespace"]),
             tools=[openai_mcp_tool],  # type: ignore[arg-type]

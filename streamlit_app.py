@@ -476,6 +476,10 @@ def _render_exchange_response(
                 github_issue = state.get("github_issue", "")
                 if github_issue:
                     st.markdown(f"[🎫 GitHub Issue Created]({github_issue})")
+                elif "GitHub MCP Server Unavailable" in state.get("status_message", ""):
+                    st.markdown(
+                        "⚠️ GitHub Issue Not Created: GitHub MCP Server Unavailable"
+                    )
 
             if is_complete:
                 agent_timings = state.get("agent_timings", {})
@@ -541,7 +545,7 @@ async def run_workflow_task_async(
         )
 
         # store result globally for UI rendering across reruns
-        submission_states[submission_id] = result  # type: ignore[assignment]
+        submission_states[submission_id] = result
 
         conversation_id = result.get("conversation_id")
         if conversation_id:
@@ -896,7 +900,7 @@ def main() -> "None":
         submission_id = str(uuid.uuid4())
 
         # initialize workflow state for this exchange
-        exchange_state: "WorkflowState" = {  # type: ignore[assignment]
+        exchange_state: "WorkflowState" = {
             "input": question,
             "submission_id": submission_id,
             "conversation_id": conversation_id,

@@ -213,7 +213,7 @@ class Workflow:
                     response_text = extract_rag_response_text(rag_response)
                     rag_response_obj: "ResponseObject" = cast(
                         ResponseObject, rag_response
-                    )  # type: ignore[arg-type]
+                    )
 
                     if rag_category:
                         sources = self.rag_service.extract_sources_from_response(

@@ -245,6 +245,8 @@ class TestGitAgent:
         assert "Git" in result["agent_timings"]
         assert result["active_agent"] == "Git"
         assert result["github_issue"] == "https://github.com/test/issue/1"
+        assert result["status_message"] == "Git Agent finished: GitHub issue created"
+        assert "Git Agent finished: GitHub issue created" in result["status_history"]
 
     def test_git_agent_without_openai_client(self, sample_workflow_state):
         with pytest.raises(AgentRunMethodParameterError):
@@ -293,6 +295,12 @@ class TestGitAgent:
 
         assert "agent_timings" in result
         assert "Git" in result["agent_timings"]
+        assert result["github_issue"] == ""
+        assert "GitHub MCP Server Unavailable" in result["status_message"]
+        assert (
+            "Git Agent finished: GitHub MCP Server Unavailable"
+            in result["status_history"]
+        )
 
     def test_git_agent_timing_tracking(self, sample_workflow_state, mock_openai_client):
         mock_output_item = Mock()
