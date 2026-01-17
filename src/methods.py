@@ -354,7 +354,7 @@ def git_agent(
     state["workflow_complete"] = True
 
     if github_mcp_available:
-        completion_msg = "Git Agent finished: GitHub issue created"
+        completion_msg = "✅ Git Agent finished: GitHub issue created"
     else:
         completion_msg = "Git Agent finished: GitHub MCP Server Unavailable"
     state["status_history"].append(completion_msg)

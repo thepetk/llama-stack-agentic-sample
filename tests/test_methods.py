@@ -245,8 +245,8 @@ class TestGitAgent:
         assert "Git" in result["agent_timings"]
         assert result["active_agent"] == "Git"
         assert result["github_issue"] == "https://github.com/test/issue/1"
-        assert result["status_message"] == "Git Agent finished: GitHub issue created"
-        assert "Git Agent finished: GitHub issue created" in result["status_history"]
+        assert result["status_message"] == "✅ Git Agent finished: GitHub issue created"
+        assert "✅ Git Agent finished: GitHub issue created" in result["status_history"]
 
     def test_git_agent_without_openai_client(self, sample_workflow_state):
         with pytest.raises(AgentRunMethodParameterError):
