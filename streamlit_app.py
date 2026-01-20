@@ -21,7 +21,7 @@ from src.exceptions import NoVectorStoresFoundError
 from src.ingest import IngestionService
 from src.responses import RAGService
 from src.types import Pipeline, WorkflowState
-from src.utils import logger, submission_states
+from src.utils import check_llama_stack_availability, logger, submission_states
 from src.workflow import Workflow
 
 # API_KEY: OpenAI API key (not used directly but may be needed
@@ -214,6 +214,78 @@ def count_vector_stores() -> "int":
     except Exception as e:
         logger.warning(f"Failed to count vector stores: {e}")
         return 0
+
+
+def get_llama_stack_status() -> "dict[str, Any]":
+    """
+    gets or initializes llama-stack status state.
+    Tracks connectivity and model availability.
+    """
+    if "llama_stack_status" not in st.session_state:
+        st.session_state.llama_stack_status = {
+            "connected": False,
+            "checked": False,
+            "error_message": "",
+            "available_models": [],
+            "missing_models": [],
+        }
+    return st.session_state.llama_stack_status
+
+
+def check_llama_stack_health() -> "dict[str, Any]":
+    """
+    performs health check of llama-stack: connectivity and model availability.
+    """
+    status = get_llama_stack_status()
+
+    required_models = [INFERENCE_MODEL, GUARDRAIL_MODEL, MCP_TOOL_MODEL]
+    result = check_llama_stack_availability(LLAMA_STACK_URL, required_models)
+
+    status["connected"] = result["connected"]
+    status["error_message"] = result["error_message"]
+    status["available_models"] = result["available_models"]
+    status["missing_models"] = result["missing_models"]
+    status["checked"] = True
+
+    return status
+
+
+def render_llama_stack_errors() -> "bool":
+    """
+    renders error banners for llama-stack issues in sidebar.
+    Returns True if there are blocking errors (no connection).
+    """
+    status = get_llama_stack_status()
+
+    if not status["checked"]:
+        return False
+
+    # connection error case
+    if not status["connected"]:
+        st.error(
+            "**Llama Stack Unavailable**\n\n"
+            f"{status['error_message']}\n\n"
+            "**To fix:**\n"
+            f"- Start Llama Stack at `{LLAMA_STACK_URL}`\n"
+            "- Or set `LLAMA_STACK_URL` to the correct address"
+        )
+        if st.button("Retry Connection"):
+            check_llama_stack_health()
+            st.rerun()
+        return True
+
+    # model unavailable case
+    if status["missing_models"]:
+        missing_list = "\n".join([f"- `{m}`" for m in status["missing_models"]])
+        st.warning(
+            "**Models Not Found**\n\n"
+            f"These models are not available in Llama Stack:\n{missing_list}\n\n"
+            "**To fix:**\n"
+            "- Check your Llama Stack `run.yaml` configuration\n"
+            "- Or update the model environment variables"
+        )
+
+    return False
 
 
 async def check_and_run_ingestion_if_needed() -> "None":
@@ -778,15 +850,33 @@ def main() -> "None":
     # progress async tasks on each rerun
     progress_event_loop()
 
+    # check llama-stack health on first load
+    llama_stack_status = get_llama_stack_status()
+    if not llama_stack_status["checked"]:
+        llama_stack_status = check_llama_stack_health()
+
     # ingestion state runs automatically on startup
     ingestion_state = get_ingestion_state()
 
     with st.sidebar:
         st.title("⚙️ Configuration")
+
+        # show llama-stack connection status
+        if llama_stack_status["checked"]:
+            if llama_stack_status["connected"]:
+                st.success("**Llama Stack:** Connected")
+            else:
+                st.error("**Llama Stack:** Disconnected")
+
         st.markdown(f"**Inference Model:** `{INFERENCE_MODEL}`")
         st.markdown(f"**Guardrail Model:** `{GUARDRAIL_MODEL}`")
         st.markdown(f"**MCP Tool Model:** `{MCP_TOOL_MODEL}`")
         st.divider()
+
+        # render llama-stack errors
+        has_blocking_error = render_llama_stack_errors()
+        if has_blocking_error:
+            st.divider()
 
         st.subheader("📦 Ingestion Status")
 
@@ -809,6 +899,16 @@ def main() -> "None":
         if vector_store_count > 0:
             st.metric("Vector Stores in Database", vector_store_count)
         st.divider()
+
+    # block workflow if llama-stack is not connected
+    if not llama_stack_status["connected"]:
+        st.title("🤖 Agentic AI Workflow - Connection Error")
+        st.error(
+            "**Cannot start workflow: Llama Stack is not available**\n\n"
+            f"{llama_stack_status['error_message']}\n\n"
+            "Please check the sidebar for details on how to resolve this issue."
+        )
+        return
 
     # block workflow until ingestion complete
     if ingestion_state["status"] in ("pending", "running"):

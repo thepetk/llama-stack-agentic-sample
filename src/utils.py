@@ -1,7 +1,9 @@
 import json
 import logging
 import os
+from typing import Any
 
+from llama_stack_client import LlamaStackClient
 from llama_stack_client.types import ResponseObject
 from typing_extensions import Literal
 
@@ -156,3 +158,61 @@ def extract_mcp_output(
                     logger.debug(f"{agent_name} response message: {text_value}")
 
     return mcp_output
+
+
+def check_llama_stack_availability(
+    base_url: "str",
+    required_models: "list[str] | None" = None,
+) -> "dict[str, Any]":
+    """
+    checks llama-stack server connectivity and model availability.
+    Makes sure that all required models are present on the server.
+    """
+    result: "dict[str, Any]" = {
+        "connected": False,
+        "error_message": "",
+        "available_models": [],
+        "missing_models": [],
+    }
+
+    try:
+        client = LlamaStackClient(base_url=base_url)
+        models_response = client.models.list()
+        result["connected"] = True
+
+        if not required_models:
+            return result
+
+        available_model_ids = set()
+        if models_response:
+            for model in models_response:
+                model_id = getattr(model, "identifier", None) or getattr(
+                    model, "id", None
+                )
+                if model_id:
+                    available_model_ids.add(model_id)
+
+        result["available_models"] = [
+            m for m in required_models if m in available_model_ids
+        ]
+        result["missing_models"] = [
+            m for m in required_models if m not in available_model_ids
+        ]
+
+    except Exception as e:
+        error_str = str(e)
+        if "Connection refused" in error_str or "ConnectError" in error_str:
+            result["error_message"] = (
+                f"Cannot connect to Llama Stack server at {base_url}. "
+                "Please ensure the server is running."
+            )
+        elif "timeout" in error_str.lower():
+            result["error_message"] = (
+                f"Connection to Llama Stack at {base_url} timed out."
+            )
+        else:
+            result["error_message"] = f"Llama Stack connection failed: {error_str}"
+
+        logger.error(f"Llama Stack health check failed: {result['error_message']}")
+
+    return result

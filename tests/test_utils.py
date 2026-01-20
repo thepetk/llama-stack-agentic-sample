@@ -1,7 +1,8 @@
 import json
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from src.utils import (
+    check_llama_stack_availability,
     clean_text,
     extract_mcp_output,
     extract_rag_response_text,
@@ -354,3 +355,162 @@ class TestExtractMcpOutput:
             mock_response, agent_name="test_agent", extract_url=True
         )
         assert result == ""
+
+
+class TestCheckLlamaStackAvailability:
+    """
+    tests for check_llama_stack_availability function.
+    """
+
+    def test_successful_connection_without_model_check(self):
+        mock_client = Mock()
+        mock_client.models.list.return_value = []
+
+        with patch("src.utils.LlamaStackClient", return_value=mock_client):
+            result = check_llama_stack_availability("http://localhost:8321")
+
+        assert result["connected"] is True
+        assert result["error_message"] == ""
+        assert result["available_models"] == []
+        assert result["missing_models"] == []
+
+    def test_successful_connection_with_all_models_available(self):
+        mock_model1 = Mock()
+        mock_model1.identifier = "model-1"
+        mock_model2 = Mock()
+        mock_model2.identifier = "model-2"
+
+        mock_client = Mock()
+        mock_client.models.list.return_value = [mock_model1, mock_model2]
+
+        with patch("src.utils.LlamaStackClient", return_value=mock_client):
+            result = check_llama_stack_availability(
+                "http://localhost:8321",
+                required_models=["model-1", "model-2"],
+            )
+
+        assert result["connected"] is True
+        assert result["error_message"] == ""
+        assert result["available_models"] == ["model-1", "model-2"]
+        assert result["missing_models"] == []
+
+    def test_successful_connection_with_some_models_missing(self):
+        mock_model = Mock()
+        mock_model.identifier = "model-1"
+
+        mock_client = Mock()
+        mock_client.models.list.return_value = [mock_model]
+
+        with patch("src.utils.LlamaStackClient", return_value=mock_client):
+            result = check_llama_stack_availability(
+                "http://localhost:8321",
+                required_models=["model-1", "model-2", "model-3"],
+            )
+
+        assert result["connected"] is True
+        assert result["error_message"] == ""
+        assert result["available_models"] == ["model-1"]
+        assert result["missing_models"] == ["model-2", "model-3"]
+
+    def test_successful_connection_with_all_models_missing(self):
+        mock_client = Mock()
+        mock_client.models.list.return_value = []
+
+        with patch("src.utils.LlamaStackClient", return_value=mock_client):
+            result = check_llama_stack_availability(
+                "http://localhost:8321",
+                required_models=["model-1", "model-2"],
+            )
+
+        assert result["connected"] is True
+        assert result["available_models"] == []
+        assert result["missing_models"] == ["model-1", "model-2"]
+
+    def test_connection_refused_error(self):
+        with patch(
+            "src.utils.LlamaStackClient",
+            side_effect=Exception("Connection refused"),
+        ):
+            result = check_llama_stack_availability("http://localhost:8321")
+
+        assert result["connected"] is False
+        assert "Cannot connect to Llama Stack server" in result["error_message"]
+        assert "http://localhost:8321" in result["error_message"]
+        assert result["available_models"] == []
+        assert result["missing_models"] == []
+
+    def test_connect_error(self):
+        with patch(
+            "src.utils.LlamaStackClient",
+            side_effect=Exception("ConnectError: Failed to establish connection"),
+        ):
+            result = check_llama_stack_availability("http://localhost:8321")
+
+        assert result["connected"] is False
+        assert "Cannot connect to Llama Stack server" in result["error_message"]
+
+    def test_timeout_error(self):
+        with patch(
+            "src.utils.LlamaStackClient",
+            side_effect=Exception("Request timeout exceeded"),
+        ):
+            result = check_llama_stack_availability("http://localhost:8321")
+
+        assert result["connected"] is False
+        assert "timed out" in result["error_message"]
+
+    def test_generic_error(self):
+        with patch(
+            "src.utils.LlamaStackClient",
+            side_effect=Exception("Some unexpected error"),
+        ):
+            result = check_llama_stack_availability("http://localhost:8321")
+
+        assert result["connected"] is False
+        assert "Llama Stack connection failed" in result["error_message"]
+        assert "Some unexpected error" in result["error_message"]
+
+    def test_model_with_id_attribute_instead_of_identifier(self):
+        mock_model = Mock(spec=["id"])
+        mock_model.id = "model-with-id"
+
+        mock_client = Mock()
+        mock_client.models.list.return_value = [mock_model]
+
+        with patch("src.utils.LlamaStackClient", return_value=mock_client):
+            result = check_llama_stack_availability(
+                "http://localhost:8321",
+                required_models=["model-with-id"],
+            )
+
+        assert result["connected"] is True
+        assert result["available_models"] == ["model-with-id"]
+        assert result["missing_models"] == []
+
+    def test_empty_required_models_list(self):
+        mock_client = Mock()
+        mock_client.models.list.return_value = []
+
+        with patch("src.utils.LlamaStackClient", return_value=mock_client):
+            result = check_llama_stack_availability(
+                "http://localhost:8321",
+                required_models=[],
+            )
+
+        assert result["connected"] is True
+        assert result["available_models"] == []
+        assert result["missing_models"] == []
+
+    def test_none_models_response(self):
+        mock_client = Mock()
+        mock_client.models.list.return_value = None
+
+        with patch("src.utils.LlamaStackClient", return_value=mock_client):
+            result = check_llama_stack_availability(
+                "http://localhost:8321",
+                required_models=["model-1"],
+            )
+
+        assert result["connected"] is True
+        assert result["available_models"] == []
+        assert result["missing_models"] == ["model-1"]
