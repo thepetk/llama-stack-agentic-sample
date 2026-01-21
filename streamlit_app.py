@@ -253,7 +253,7 @@ def check_llama_stack_health() -> "dict[str, Any]":
 def render_llama_stack_errors() -> "bool":
     """
     renders error banners for llama-stack issues in sidebar.
-    Returns True if there are blocking errors (no connection).
+    Returns True if there are blocking errors (no connection or missing models).
     """
     status = get_llama_stack_status()
 
@@ -277,13 +277,14 @@ def render_llama_stack_errors() -> "bool":
     # model unavailable case
     if status["missing_models"]:
         missing_list = "\n".join([f"- `{m}`" for m in status["missing_models"]])
-        st.warning(
+        st.error(
             "**Models Not Found**\n\n"
             f"These models are not available in Llama Stack:\n{missing_list}\n\n"
             "**To fix:**\n"
             "- Check your Llama Stack `run.yaml` configuration\n"
             "- Or update the model environment variables"
         )
+        return True
 
     return False
 
@@ -906,6 +907,17 @@ def main() -> "None":
         st.error(
             "**Cannot start workflow: Llama Stack is not available**\n\n"
             f"{llama_stack_status['error_message']}\n\n"
+            "Please check the sidebar for details on how to resolve this issue."
+        )
+        return
+
+    # block workflow if required models are not available
+    if llama_stack_status.get("missing_models"):
+        missing_list = ", ".join(llama_stack_status["missing_models"])
+        st.title("🤖 Agentic AI Workflow - Model Error")
+        st.error(
+            "**Cannot start workflow: Required models are not available**\n\n"
+            f"Missing models: {missing_list}\n\n"
             "Please check the sidebar for details on how to resolve this issue."
         )
         return
