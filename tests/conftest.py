@@ -1,7 +1,7 @@
 import json
 import os
 import tempfile
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 import yaml
@@ -185,3 +185,16 @@ def mock_document_converter():
     mock_result.document = mock_document
     converter.convert.return_value = mock_result
     return converter
+
+
+@pytest.fixture
+def mock_llama_stack_availability():
+    """
+    fixture that patches check_llama_stack_availability to return connected status.
+    Use this in tests that need IngestionService initialization.
+    """
+    with patch(
+        "src.ingest.check_llama_stack_availability",
+        return_value={"connected": True, "error_message": ""},
+    ) as mock:
+        yield mock

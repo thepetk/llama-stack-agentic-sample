@@ -35,7 +35,7 @@ from src.types import (
     SourceTypes,
     VectorDBConfig,
 )
-from src.utils import clean_text, logger
+from src.utils import check_llama_stack_availability, clean_text, logger
 
 
 class IngestionService:
@@ -95,7 +95,7 @@ class IngestionService:
             chunk_size_in_tokens=_chunk_size_in_tokens,
         )
         self.file_metadata = {}
-        
+
         # File metadata output path - prefer env var for writable location in containers
         self.file_metadata_path = os.environ.get(
             "RAG_FILE_METADATA", "rag_file_metadata.json"
@@ -219,33 +219,29 @@ class IngestionService:
         logger.debug(
             f"Connecting Llama Stack Client to Server at {self.llama_stack_url}..."
         )
-        _initialized = False
 
         for attempt in range(max_retries):
-            try:
-                client = LlamaStackClient(base_url=self.llama_stack_url)
-                client.models.list()
-                logger.debug("Llama Stack Client connected successfully!")
-                _initialized = True
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    logger.info(
-                        f"Attempt {attempt + 1}/{max_retries}: "
-                        f"Llama Stack not ready yet. "
-                        f"Retrying in {retry_delay}s..."
-                    )
-                    time.sleep(retry_delay)
-                else:
-                    logger.error(
-                        f"Failed to connect to Llama Stack "
-                        f"after {max_retries} attempts: {e}"
-                    )
-                    _initialized = False
-        if not _initialized:
-            logger.error("Failed to connect to Llama Stack. Exiting.")
-            sys.exit(1)
+            result = check_llama_stack_availability(self.llama_stack_url)
 
-        return client
+            if result["connected"]:
+                logger.debug("Llama Stack Client connected successfully!")
+                return LlamaStackClient(base_url=self.llama_stack_url)
+
+            if attempt < max_retries - 1:
+                logger.info(
+                    f"Attempt {attempt + 1}/{max_retries}: "
+                    f"Llama Stack not ready yet. "
+                    f"Retrying in {retry_delay}s..."
+                )
+                time.sleep(retry_delay)
+            else:
+                logger.error(
+                    f"Failed to connect to Llama Stack "
+                    f"after {max_retries} attempts: {result['error_message']}"
+                )
+
+        logger.error("Failed to connect to Llama Stack. Exiting.")
+        sys.exit(1)
 
     def _create_local_file(
         self, content: "ContentFile", path: "str", download_dir: "str"
