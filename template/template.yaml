@@ -70,6 +70,7 @@ spec:
           title: Include ArgoCD App Label?
           type: boolean
           description: Include a user provided ArgoCD Application Label
+          default: true
       dependencies:
         includeArgoLabel:
           oneOf:
@@ -82,6 +83,7 @@ spec:
                   title: ArgoCD Application Label
                   type: string
                   description: Label RHDH uses to identify ArgoCD Applications
+                  default: rolling-demo
 
     # ==================== Llama Stack Configuration ====================
     - title: Llama Stack Configuration
@@ -154,6 +156,7 @@ spec:
           title: Repository Owner
           type: string
           ui:help: The organization, user or project that this repo will belong to
+          default: ai-rolling-demo
         repoName:
           title: Repository Name
           type: string
@@ -211,6 +214,7 @@ spec:
           type: string
           description: Kubernetes namespace where the application and secrets will be deployed
           ui:help: "Example: rhdh-app"
+          default: rhdh-app
         llamaStackSecretName:
           title: Llama Stack Secrets Name
           type: string
@@ -266,6 +270,7 @@ spec:
           title: Image Organization
           type: string
           description: The organization, user or project for container images
+          default: rhdhpai-rolling-demo
         imageName:
           title: Image Name
           type: string
@@ -419,7 +424,7 @@ spec:
           appName: ${{ parameters.name }}-gitops
           description: GitOps manifest for Llama Stack Agentic - ${{ parameters.name }}
           namespace: ${{ parameters.namespace }}
-          rhdhNamespace: ai-rhdh
+          rhdhNamespace: rolling-demo-ns
           repoURL: https://${{ parameters.githubServer if parameters.hostType === 'GitHub' else parameters.gitlabServer }}/${{ parameters.repoOwner }}/${{ parameters.repoName }}-gitops
           srcRepoURL: https://${{ parameters.githubServer if parameters.hostType === 'GitHub' else parameters.gitlabServer }}/${{ parameters.repoOwner }}/${{ parameters.repoName }}
           argoComponentOverlays: './components/${{ parameters.name }}/overlays'
@@ -525,7 +530,7 @@ spec:
         appName: ${{ parameters.name }}-app-of-apps
         argoInstance: ${{ parameters.argoInstance }}
         namespace: ${{ parameters.argoNS }}
-        labelValue: ${{ parameters.argoAppLabel if parameters.includeArgoLabel else '' }}
+        labelValue: rolling-demo
         repoUrl: https://${{ parameters.githubServer if parameters.hostType === 'GitHub' else parameters.gitlabServer }}/${{ parameters.repoOwner }}/${{ parameters.repoName }}-gitops.git
         path: './app-of-apps'
 
