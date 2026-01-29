@@ -333,19 +333,6 @@ def git_agent(
             state["classification_message"],
             state["mcp_output"],
         ]
-
-        for body in bodies:
-            resp = openai_client.responses.create(
-                model=tools_llm,
-                input=WorkflowAgentPrompts.GIT_COMMENT_PROMPT.format(
-                    github_url=github_url,
-                    issue_id=gh_issue,
-                    comment_body=body,
-                ),
-                tools=[openai_mcp_tool],  # type: ignore[arg-type]
-            )
-            logger.info(f"git_agent COMMENT {body} response returned {resp}")
-
     except Exception as e:
         github_mcp_available = False
         state["github_issue"] = ""
@@ -353,6 +340,52 @@ def git_agent(
             f"Git Agent unsuccessful MCP request "
             f"for submission {state['submission_id']} with error: '{e}'"
         )
+
+    github_mcp_comment_failed = False
+    if github_mcp_available:
+        try:
+            for body in bodies:
+                # Convert body to string based on type
+                if isinstance(body, str):
+                    body_as_string = body
+                elif isinstance(body, list):
+                    body_as_string = ""
+                    for item in body:
+                        body_as_string += str(item)
+                else:
+                    body_as_string = str(body)
+
+                # Truncate to first 65,500 characters as github comments have a
+                # max length of 65,536 characters
+                # and the github server errors out (in a not obvious way) when
+                # we exceed that number;
+                # some test k8s performance top output went well over 100K
+                # characters
+                body_as_string = body_as_string[:65500]
+
+                logger.info(f"git_agent COMMENT of len {len(body_as_string)}")
+                resp = openai_client.responses.create(
+                    model=tools_llm,
+                    input=WorkflowAgentPrompts.GIT_COMMENT_PROMPT.format(
+                        github_url=github_url,
+                        issue_id=gh_issue,
+                        comment_body=body_as_string,
+                    ),
+                    tools=[openai_mcp_tool],  # type: ignore[arg-type]
+                    timeout=240.0,  # the bigger comment calls can take
+                    # especially long ... put a cap on it
+                )
+                logger.info(
+                    f"git_agent COMMENT {body_as_string[:100]} response returned {resp}"
+                )
+                github_mcp_comment_failed = False
+
+        except Exception as e:
+            github_mcp_comment_failed = True
+            logger.info(
+                f"Git Agent unsuccessful MCP request for comment creation "
+                f"for submission {state['submission_id']} with error: '{e}'"
+            )
 
     agent_end_time = time.time()
     state["agent_timings"]["Git"] = agent_end_time - agent_start_time
@@ -362,6 +395,8 @@ def git_agent(
         completion_msg = "✅ Git Agent finished: GitHub issue created"
     else:
         completion_msg = "Git Agent finished: GitHub MCP Server Unavailable"
+    if github_mcp_comment_failed:
+        completion_msg = completion_msg + " but some comment creation failed"
     state["status_history"].append(completion_msg)
     state["status_message"] = completion_msg
 

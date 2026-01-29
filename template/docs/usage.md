@@ -58,8 +58,7 @@ All secrets must exist in the specified namespace before deployment.
 |-----------|-------------|---------|----------|
 | **Deployment Namespace** | Kubernetes namespace where the application and secrets will be deployed | `rhdh-app` | Yes |
 | **Llama Stack Secrets Name** | Secret containing `VLLM_API_KEY` and `OPENAI_API_KEY` | `llama-stack-secrets` | Yes |
-| **Application Secrets Name** | Secret containing `GITHUB_TOKEN` | `app-secrets` | Yes |
-| **CI/CD Credentials Secret Name** | Secret containing pipeline credentials | `cicd-credentials` | Yes |
+| **Platform Credentials Secret Name** | Secret containing `GITHUB_TOKEN`, `GITLAB_TOKEN`, `WEBHOOK_SECRET`, `QUAY_DOCKERCONFIGJSON` | `platform-credentials` | Yes |
 | **Secrets Acknowledgment** | Checkbox confirming secrets exist or will be created | - | Yes |
 
 ### **Deployment Information**
@@ -89,31 +88,19 @@ stringData:
   OPENAI_API_KEY: "<your-openai-api-key>"
 ```
 
-### **Application Secrets**
+### **Platform Credentials**
 
 ```yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: app-secrets  # Must match "Application Secrets Name" parameter
+  name: platform-credentials  # Must match "Platform Credentials Secret Name" parameter
 type: Opaque
 stringData:
-  # GitHub PAT with 'repo' scope - required by GitHub MCP Tool for issue creation and commenting
+  # GitHub PAT with 'repo' scope
+  # Used by: Application (GitHub MCP Tool) + CI/CD (Tekton GitOps)
   GITHUB_TOKEN: "<your-github-personal-access-token>"
-```
-
-### **CI/CD Credentials**
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: cicd-credentials  # Must match "CI/CD Credentials Secret Name" parameter
-type: Opaque
-stringData:
-  # GitHub/GitLab PAT for Tekton pipeline GitOps operations
-  GIT_TOKEN: "<your-git-pat>"
-  # GitLab PAT (only if using GitLab)
+  # GitLab PAT (only if using GitLab instead of GitHub)
   GITLAB_TOKEN: "<your-gitlab-pat>"
   # Pipelines as Code webhook secret (GitHub/GitLab)
   WEBHOOK_SECRET: "<your-webhook-secret>"

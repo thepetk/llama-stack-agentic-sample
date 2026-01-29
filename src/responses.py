@@ -45,6 +45,9 @@ class RAGService:
         # file metadata: file_id -> {original_filename, github_url, category}
         self.file_metadata: "dict[str, dict[str, str]]" = {}
 
+        # Store pipelines for metadata regeneration
+        self.pipelines = pipelines
+
         # load ingestion config if available
         if ingestion_config_path is None:
             for path in DEFAULT_INGESTION_CONFIG_PATHS:
@@ -80,6 +83,167 @@ class RAGService:
         except Exception as e:
             logger.warning(f"RAG Service: Could not load file metadata: {e}")
 
+    def _validate_and_regenerate_metadata(self) -> "None":
+        """
+        Validates that loaded file_metadata matches actual files in vector stores.
+        If there's a mismatch (stale metadata), regenerates metadata from vector stores.
+        This handles the case where:
+        - Pod restarts with existing vector stores but stale/missing metadata
+        - Container has metadata from a different Llama Stack instance
+        """
+        if not self.client:
+            logger.warning(
+                "RAG Service: Cannot validate metadata - client not initialized"
+            )
+            return
+
+        # Collect all file_ids from vector stores
+        actual_file_ids: "set[str]" = set()
+        file_id_to_category: "dict[str, str]" = {}
+
+        for category, vs_ids in self.vector_store_map.items():
+            for vs_id in vs_ids:
+                try:
+                    files = self.client.vector_stores.files.list(vector_store_id=vs_id)
+                    if not files:
+                        continue
+                    for file_info in files:
+                        file_id = getattr(file_info, "id", None) or getattr(
+                            file_info, "file_id", None
+                        )
+                        if file_id:
+                            actual_file_ids.add(file_id)
+                            file_id_to_category[file_id] = category
+                except Exception as e:
+                    logger.debug(f"Could not list files for vector store {vs_id}: {e}")
+
+        if not actual_file_ids:
+            logger.warning("RAG Service: No files found in vector stores")
+            return
+
+        # Check if current metadata has matching file_ids
+        metadata_file_ids = set(self.file_metadata.keys())
+        matching_ids = actual_file_ids & metadata_file_ids
+
+        if matching_ids == actual_file_ids:
+            logger.info(
+                f"RAG Service: File metadata is valid ({len(matching_ids)} files match)"
+            )
+            return
+
+        # Metadata is stale or missing - regenerate from vector stores
+        logger.warning(
+            f"RAG Service: File metadata mismatch detected! "
+            f"Actual files: {len(actual_file_ids)}, "
+            f"Matching metadata: {len(matching_ids)}. "
+            f"Regenerating metadata from vector stores..."
+        )
+
+        self._regenerate_file_metadata(file_id_to_category)
+
+    def _regenerate_file_metadata(
+        self, file_id_to_category: "dict[str, str]"
+    ) -> "None":
+        """
+        Regenerates file metadata by querying file details from Llama Stack.
+        Uses category information to construct GitHub URLs.
+
+        This handles pod restarts where the local metadata file is lost but
+        vector stores still exist in Llama Stack. The original filename is
+        preserved in Llama Stack's file storage (since we upload with the
+        original filename, just with .txt extension instead of .pdf).
+        """
+        if not self.client:
+            return
+
+        regenerated_metadata: "dict[str, dict[str, str]]" = {}
+
+        for file_id, category in file_id_to_category.items():
+            try:
+                # Try to get file details from Llama Stack
+                file_info = self.client.files.retrieve(file_id)
+
+                # Extract filename - try multiple attributes
+                filename: "str | None" = None
+                if hasattr(file_info, "filename") and file_info.filename:
+                    filename = str(file_info.filename)
+                elif hasattr(file_info, "name") and file_info.name:
+                    filename = str(file_info.name)
+
+                # Get base URL for this category
+                base_url = self.source_url_map.get(category, "")
+
+                if isinstance(filename, str):
+                    # Clean up filename if it's a full path
+                    if "/" in filename:
+                        filename = os.path.basename(filename)
+
+                    # Convert .txt back to .pdf (ingestion converts pdf->txt)
+                    original_filename: str = filename
+                    if filename.lower().endswith(".txt"):
+                        original_filename = filename[:-4] + ".pdf"
+
+                    # Skip if filename looks like a random temp file
+                    # (e.g., tmp12345.txt from old ingestion code)
+                    is_valid_filename = not (
+                        filename.startswith("tmp")
+                        and len(filename) > 10
+                        and filename[3:].split(".")[0].isdigit()
+                    )
+
+                    if is_valid_filename:
+                        github_url: str = (
+                            f"{base_url}/{original_filename}" if base_url else ""
+                        )
+
+                        regenerated_metadata[file_id] = {
+                            "original_filename": original_filename,
+                            "github_url": github_url,
+                            "category": category,
+                        }
+                        logger.info(
+                            f"RAG Service: Regenerated metadata for "
+                            f"{file_id} -> {original_filename}"
+                        )
+                    else:
+                        # Random temp filename - use fallback
+                        regenerated_metadata[file_id] = {
+                            "original_filename": f"Document from {category}",
+                            "github_url": base_url,
+                            "category": category,
+                        }
+                        logger.debug(
+                            f"RAG Service: Temp filename detected for {file_id}, "
+                            f"using category fallback"
+                        )
+                else:
+                    # Fallback: no filename available
+                    regenerated_metadata[file_id] = {
+                        "original_filename": f"Document from {category}",
+                        "github_url": base_url,
+                        "category": category,
+                    }
+                    logger.debug(
+                        f"RAG Service: No filename for {file_id}, using fallback"
+                    )
+
+            except Exception as e:
+                logger.debug(f"Could not retrieve file {file_id}: {e}")
+                # Still add basic metadata so we have category info
+                base_url = self.source_url_map.get(category, "")
+                regenerated_metadata[file_id] = {
+                    "original_filename": f"Document from {category}",
+                    "github_url": base_url,
+                    "category": category,
+                }
+
+        if regenerated_metadata:
+            self.file_metadata = regenerated_metadata
+            logger.info(
+                f"RAG Service: Regenerated metadata for "
+                f"{len(regenerated_metadata)} files"
+            )
+
     def _load_source_url_map(self, pipelines: "list[Pipeline]") -> "dict[str, str]":
         """
         loads pipelines to map vector stores to source URLs.
@@ -89,7 +253,8 @@ class RAGService:
                 continue
 
             if pipeline.source == SourceTypes.GITHUB:
-                url = pipeline.source_config.url
+                # Strip .git suffix if present (matches ingest.py behavior)
+                url = pipeline.source_config.url.rstrip("/").removesuffix(".git")
                 branch = pipeline.source_config.branch
                 path = pipeline.source_config.path or ""
 
@@ -219,6 +384,11 @@ class RAGService:
             f"RAG Service: Categories available: {list(self.vector_store_map.keys())}"
         )
 
+        # Validate and regenerate file metadata if stale/missing
+        # This handles the case where pod restarts with existing vector stores
+        # but the local file_metadata.json is outdated or missing
+        self._validate_and_regenerate_metadata()
+
         return len(self.all_vector_store_ids) > 0
 
     def get_vector_store_ids(self, category: "str | None" = None) -> "list[str]":
@@ -328,13 +498,19 @@ class RAGService:
                         f"-> {metadata.get('github_url')}"
                     )
                 else:
-                    source_url = self.get_source_url(category, file_id)
+                    # Metadata not found - use category base URL instead of
+                    # constructing invalid URL with file_id
+                    base_url = self.source_url_map.get(category, "")
+                    # Link to category folder, not invalid file_id URL
                     sources.append(
                         {
-                            "filename": file_id,
-                            "url": source_url,
+                            "filename": f"Document from {category} knowledge base",
+                            "url": base_url,
                             "snippet": snippet or "",
                         }
+                    )
+                    logger.debug(
+                        f"No metadata for file_id {file_id}, using category URL"
                     )
 
         if not sources:
@@ -384,12 +560,12 @@ class RAGService:
                         # next iteration if found in metadata
                         continue
 
-                    filename = getattr(file_info, "filename", None) or file_id
-                    source_url = self.get_source_url(category, filename)
+                    # Metadata not found - use category base URL
+                    base_url = self.source_url_map.get(category, "")
                     sources.append(
                         {
-                            "filename": filename,
-                            "url": source_url,
+                            "filename": f"Document from {category} knowledge base",
+                            "url": base_url,  # Link to category folder
                             "snippet": "",
                         }
                     )

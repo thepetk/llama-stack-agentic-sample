@@ -34,7 +34,7 @@ spec:
             - configMapRef:
                 name: ${{ values.name }}-app-config
             - secretRef:
-                name: ${{ values.appSecretName }}
+                name: ${{ values.platformCredentialsSecretName }}
                 optional: false
           env:
             # Fix cache permissions in OpenShift (runs as arbitrary non-root user)

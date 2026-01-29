@@ -15,21 +15,21 @@ spec:
   description: |-
     Create the required resources for AI Software Template tasks to run in a namespace.
     This includes secrets for Git authentication, image registry, webhooks, and signing.
-    Reads credentials from the cicd-credentials secret in the same namespace.
+    Reads credentials from the platform-credentials secret in the same namespace.
   params:
-    - name: cicd_secret_name
+    - name: platform_secret_name
       type: string
-      default: 'cicd-credentials'
+      default: 'platform-credentials'
       description: |
-        Name of the Kubernetes Secret containing CI/CD credentials
-        (GIT_TOKEN, GITLAB_TOKEN, WEBHOOK_SECRET, QUAY_DOCKERCONFIGJSON)
+        Name of the Kubernetes Secret containing platform credentials
+        (GITHUB_TOKEN, GITLAB_TOKEN, WEBHOOK_SECRET, QUAY_DOCKERCONFIGJSON)
     # Note: cosign_public_key is auto-fetched from openshift-pipelines namespace
   steps:
     - name: setup-namespace
       image: "registry.redhat.io/openshift4/ose-tools-rhel9:v4.18"
       env:
-        - name: CICD_SECRET_NAME
-          value: $(params.cicd_secret_name)
+        - name: PLATFORM_SECRET_NAME
+          value: $(params.platform_secret_name)
       script: |
         #!/usr/bin/env bash
         set -o errexit
@@ -38,12 +38,12 @@ spec:
 
         echo "=== Initializing namespace with required secrets ==="
 
-        # Read credentials from the cicd-credentials secret
-        echo "* Reading credentials from $CICD_SECRET_NAME secret..."
-        GIT_TOKEN=$(kubectl get secret "$CICD_SECRET_NAME" -o jsonpath='{.data.GIT_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null) || GIT_TOKEN=""
-        GITLAB_TOKEN=$(kubectl get secret "$CICD_SECRET_NAME" -o jsonpath='{.data.GITLAB_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null) || GITLAB_TOKEN=""
-        WEBHOOK_SECRET=$(kubectl get secret "$CICD_SECRET_NAME" -o jsonpath='{.data.WEBHOOK_SECRET}' 2>/dev/null | base64 -d 2>/dev/null) || WEBHOOK_SECRET=""
-        QUAY_DOCKERCONFIGJSON=$(kubectl get secret "$CICD_SECRET_NAME" -o jsonpath='{.data.QUAY_DOCKERCONFIGJSON}' 2>/dev/null | base64 -d 2>/dev/null) || QUAY_DOCKERCONFIGJSON=""
+        # Read credentials from the platform-credentials secret
+        echo "* Reading credentials from $PLATFORM_SECRET_NAME secret..."
+        GITHUB_TOKEN=$(kubectl get secret "$PLATFORM_SECRET_NAME" -o jsonpath='{.data.GITHUB_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null) || GITHUB_TOKEN=""
+        GITLAB_TOKEN=$(kubectl get secret "$PLATFORM_SECRET_NAME" -o jsonpath='{.data.GITLAB_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null) || GITLAB_TOKEN=""
+        WEBHOOK_SECRET=$(kubectl get secret "$PLATFORM_SECRET_NAME" -o jsonpath='{.data.WEBHOOK_SECRET}' 2>/dev/null | base64 -d 2>/dev/null) || WEBHOOK_SECRET=""
+        QUAY_DOCKERCONFIGJSON=$(kubectl get secret "$PLATFORM_SECRET_NAME" -o jsonpath='{.data.QUAY_DOCKERCONFIGJSON}' 2>/dev/null | base64 -d 2>/dev/null) || QUAY_DOCKERCONFIGJSON=""
 
         # Auto-fetch cosign public key from openshift-pipelines namespace
         SECRET_NAME="cosign-pub"
@@ -96,14 +96,14 @@ spec:
           echo "* Skipping $SECRET_NAME secret (no value provided)"
         fi
 
-        # Create gitops-auth-secret for Git operations
+        # Create gitops-auth-secret for GitHub Git operations
         SECRET_NAME="gitops-auth-secret"
         if kubectl get secret "$SECRET_NAME" >/dev/null 2>&1; then
           echo "* $SECRET_NAME secret already exists, skipping"
-        elif [ -n "$GIT_TOKEN" ]; then
+        elif [ -n "$GITHUB_TOKEN" ]; then
           echo -n "* Creating $SECRET_NAME secret: "
           kubectl create secret generic "$SECRET_NAME" \
-            --from-literal=password=$GIT_TOKEN \
+            --from-literal=password=$GITHUB_TOKEN \
             --type=kubernetes.io/basic-auth \
             --dry-run=client -o yaml | kubectl apply --filename - >/dev/null
           echo "OK"

@@ -443,7 +443,9 @@ class IngestionService:
         self, file_path: str, github_base_url: str, category: str
     ) -> File | None:
         """
-        processes a single PDF document
+        processes a single PDF document.
+        Preserves original filename when uploading to Llama Stack for
+        better metadata recovery after pod restarts.
         """
         try:
             original_filename = os.path.basename(file_path)
@@ -454,13 +456,19 @@ class IngestionService:
             markdown_text = result.document.export_to_markdown()
             cleaned_text = clean_text(markdown_text)
 
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", delete=False, encoding="utf-8"
-            ) as tmp_file:
-                tmp_file.write(cleaned_text)
-                tmp_file_path = tmp_file.name
+            # Create temp file with original filename (not random temp name)
+            # This preserves the filename in Llama Stack for metadata recovery
+            temp_dir = tempfile.mkdtemp()
+            # Replace .pdf extension with .txt for the processed content
+            processed_filename = original_filename
+            if processed_filename.lower().endswith(".pdf"):
+                processed_filename = processed_filename[:-4] + ".txt"
+            tmp_file_path = os.path.join(temp_dir, processed_filename)
 
             try:
+                with open(tmp_file_path, "w", encoding="utf-8") as tmp_file:
+                    tmp_file.write(cleaned_text)
+
                 file_create_response = self.client.files.create(
                     file=Path(tmp_file_path), purpose="assistants"
                 )
@@ -480,6 +488,8 @@ class IngestionService:
             finally:
                 if os.path.exists(tmp_file_path):
                     os.unlink(tmp_file_path)
+                if os.path.exists(temp_dir):
+                    os.rmdir(temp_dir)
 
         except Exception as e:
             logger.error(f"Error processing {file_path}: {e}")

@@ -1,0 +1,106 @@
+name: CI/CD App, Llama Stack Image Build and Push
+
+on:
+  push:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+env:
+  IMAGE_REGISTRY: quay.io
+  REGISTRY_ORG: redhat-ai-dev
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_name: agentic-sample
+            containerfile: Containerfile
+          - image_name: agentic-llama-stack
+            containerfile: Containerfile.llama-stack
+
+    steps:
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install buildah and configure storage
+        run: |
+          sudo apt update
+          sudo apt install -y buildah qemu-user-static
+          # Use /mnt for buildah storage (has ~72GB vs ~46GB on root)
+          sudo mkdir -p /mnt/buildah-storage
+          sudo chown -R $USER:$USER /mnt/buildah-storage
+          mkdir -p ~/.config/containers
+          cat > ~/.config/containers/storage.conf << 'EOF'
+          [storage]
+          driver = "overlay"
+          graphroot = "/mnt/buildah-storage"
+          EOF
+          cat ~/.config/containers/storage.conf
+
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Determine tags
+        id: tags
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
+            echo "tags<<EOF" >> $GITHUB_OUTPUT
+            echo "${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "tags<<EOF" >> $GITHUB_OUTPUT
+            echo "latest" >> $GITHUB_OUTPUT
+            echo "${GITHUB_SHA}" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build image with Buildah
+        id: build_image
+        uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056 # v2.13
+        with:
+          image: ${{ matrix.image_name }}
+          tags: ${{ steps.tags.outputs.tags }}
+          containerfiles: |
+            ${{ matrix.containerfile }}
+          archs: amd64
+          oci: true
+
+      - name: Check images
+        run: |
+          buildah images | grep '${{ matrix.image_name }}'
+          echo 'Image: ${{ steps.build_image.outputs.image }}'
+          echo 'Tags: ${{ steps.build_image.outputs.tags }}'
+
+      - name: Check image
+        run: |
+          set -x
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            buildah inspect ${{ steps.build_image.outputs.image }}:${{ github.event.release.tag_name }}
+          else
+            buildah inspect ${{ steps.build_image.outputs.image }}:latest
+          fi
+
+      - name: Push image to Quay.io
+        uses: redhat-actions/push-to-registry@5ed88d269cf581ea9ef6dd6806d01562096bee9c # v2.8
+        with:
+          image: ${{ steps.build_image.outputs.image }}
+          tags: ${{ steps.build_image.outputs.tags }}
+          registry: ${{ env.IMAGE_REGISTRY }}/${{ env.REGISTRY_ORG }}
+          username: ${{ secrets.QUAY_REGISTRY_USERNAME }}
+          password: ${{ secrets.QUAY_REGISTRY_PASSWORD }}

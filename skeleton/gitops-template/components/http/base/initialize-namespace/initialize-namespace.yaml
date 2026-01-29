@@ -1,7 +1,7 @@
 # Initialize Namespace Job
 # This Job runs on deployment to set up the namespace with required secrets
 # It triggers a PipelineRun that uses the local dev-namespace-setup Task
-# The Task reads credentials directly from the cicd-credentials secret
+# The Task reads credentials directly from the platform-credentials secret
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -31,7 +31,7 @@ spec:
               echo "=== Initialize RHDH Namespace: $NS ==="
               
               # Create a PipelineRun that runs the dev-namespace-setup Task
-              # The Task reads credentials directly from the cicd-credentials secret
+              # The Task reads credentials directly from the platform-credentials secret
               cat <<PIPELINERUN | oc create -f -
               apiVersion: tekton.dev/v1
               kind: PipelineRun
@@ -45,8 +45,8 @@ spec:
                       taskRef:
                         name: ${{ values.name }}-dev-namespace-setup
                       params:
-                        - name: cicd_secret_name
-                          value: "${{ values.cicdCredentialsSecretName }}"
+                        - name: platform_secret_name
+                          value: "${{ values.platformCredentialsSecretName }}"
               PIPELINERUN
               
               echo "=== PipelineRun created successfully ==="

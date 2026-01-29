@@ -198,14 +198,12 @@ spec:
       required:
         - namespace
         - llamaStackSecretName
-        - appSecretName
-        - cicdCredentialsSecretName
+        - platformCredentialsSecretName
         - secretsAcknowledgment
       ui:order:
         - namespace
         - llamaStackSecretName
-        - appSecretName
-        - cicdCredentialsSecretName
+        - platformCredentialsSecretName
         - secretsAcknowledgment
         - '*'
       properties:
@@ -222,19 +220,13 @@ spec:
           description: |
             • VLLM_API_KEY - API key for vLLM inference server
             • OPENAI_API_KEY - OpenAI API key for embeddings and inference
-        appSecretName:
-          title: Application Secrets Name
+        platformCredentialsSecretName:
+          title: Platform Credentials Secret Name
           type: string
-          default: app-secrets
+          default: platform-credentials
           description: |
-            • GITHUB_TOKEN - GitHub PAT with 'repo' scope for issue creation via GitHub MCP Tool
-        cicdCredentialsSecretName:
-          title: CI/CD Credentials Secret Name
-          type: string
-          default: cicd-credentials
-          description: |
-            • GIT_TOKEN - PAT for Tekton pipeline GitOps operations
-            • WEBHOOK_SECRET - Webhook secret for Pipelines as Code (GitHub/GitLab)
+            • GITHUB_TOKEN - GitHub PAT for app + GitOps (or GITLAB_TOKEN for GitLab)
+            • WEBHOOK_SECRET - Webhook secret for Pipelines as Code
             • QUAY_DOCKERCONFIGJSON - Docker config for pushing images to registry
         secretsAcknowledgment:
           title: I confirm the secrets exist or will be created in the specified namespace
@@ -449,12 +441,11 @@ spec:
           inferenceModel: ${{ parameters.inferenceModel }}
           mcpToolModel: ${{ parameters.mcpToolModel }}
           githubRepoUrl: ${{ parameters.githubRepoUrl }}
-          appSecretName: ${{ parameters.appSecretName }}
           # Provider flags (vLLM and OpenAI always enabled for this template)
           vllmEnabled: true
           openaiEnabled: true
           # Pipeline/Deployment configuration
-          cicdCredentialsSecretName: ${{ parameters.cicdCredentialsSecretName }}
+          platformCredentialsSecretName: ${{ parameters.platformCredentialsSecretName }}
           # Image configuration
           imageRegistry: ${{ parameters.imageRegistry }}
           imageOrg: ${{ parameters.imageOrg }}
