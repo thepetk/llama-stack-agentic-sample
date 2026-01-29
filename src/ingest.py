@@ -607,6 +607,24 @@ class IngestionService:
                         f"Could not find existing vector store '{vector_store_name}'"
                     )
                     return False
+
+                # check if the store already has files — skip insertion to
+                # avoid duplicate documents from parallel sessions
+                try:
+                    existing_files = await asyncio.to_thread(
+                        self.client.vector_stores.files.list,
+                        vector_store_id=vector_store.id,
+                    )
+                    if existing_files and len(list(existing_files)) > 0:
+                        logger.info(
+                            f"Vector store '{vector_store_name}' already has files, "
+                            f"skipping document insertion"
+                        )
+                        return True
+                except Exception as list_err:
+                    logger.debug(
+                        f"Could not list files for '{vector_store_name}': {list_err}"
+                    )
             else:
                 logger.error(f"Failed to register vector DB '{vector_store_name}': {e}")
                 return False
