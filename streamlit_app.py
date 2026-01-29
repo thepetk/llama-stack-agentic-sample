@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import threading
 import time
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -21,8 +22,15 @@ from src.exceptions import NoVectorStoresFoundError
 from src.ingest import IngestionService
 from src.responses import RAGService
 from src.types import Pipeline, WorkflowState
-from src.utils import check_llama_stack_availability, logger, submission_states
+from src.utils import (
+    check_llama_stack_availability,
+    logger,
+    submission_states,
+)
 from src.workflow import Workflow
+
+# lock to prevent concurrent ingestion from multiple Streamlit sessions
+_ingestion_lock = threading.Lock()
 
 # API_KEY: OpenAI API key (not used directly but may be needed
 API_KEY = os.getenv("OPENAI_API_KEY", "not applicable")
@@ -806,24 +814,21 @@ def display_chat_fragment() -> "None":
     displays chat messages for the selected conversation.
     Updates during active workflows are driven by conditional polling in main().
     """
-    chat_container = st.container()
+    if not st.session_state.get("selected_submission"):
+        return
 
-    with chat_container:
-        if st.session_state.selected_submission:
-            conversation_id = st.session_state.selected_submission
-            conversation_exchanges = st.session_state.conversations.get(
-                conversation_id, []
-            )
+    conversation_id = st.session_state.selected_submission
+    conversation_exchanges = st.session_state.conversations.get(conversation_id, [])
 
-            for exchange in conversation_exchanges:
-                with st.chat_message("user"):
-                    st.write(exchange.get("input", ""))
+    for exchange in conversation_exchanges:
+        with st.chat_message("user"):
+            st.write(exchange.get("input", ""))
 
-                # get current workflow state and render agent response
-                submission_id = exchange.get("submission_id", "")
-                current_state = submission_states.get(submission_id, exchange)
+        # get current workflow state and render agent response
+        submission_id = exchange.get("submission_id", "")
+        current_state = submission_states.get(submission_id, exchange)
 
-                _render_exchange_response(current_state)
+        _render_exchange_response(current_state)
 
 
 def main() -> "None":
@@ -915,12 +920,13 @@ def main() -> "None":
             # status is "pending", trigger automatic check (will transition
             # to "skipped" or "running")
             st.info("🔍 Checking vector stores...")
-            loop = get_or_create_event_loop()
-            loop.run_until_complete(check_and_run_ingestion_if_needed())
+            with _ingestion_lock:
+                loop = get_or_create_event_loop()
+                loop.run_until_complete(check_and_run_ingestion_if_needed())
             st.rerun()
             return
 
-        time.sleep(0.5)
+        time.sleep(1.0)
         st.rerun()
         return
 
@@ -1021,13 +1027,27 @@ def main() -> "None":
         # rerun to update sidebar with new conversation
         st.rerun()
 
-    # event-driven rerun: block until a background agent writes to submission_states.
-    # timeout ensures Streamlit can process queued user interactions (button clicks,
-    # chat input) since Python cannot interrupt a blocking Event.wait() call.
+    # fragment polls for background state changes
+    # note:: only active while workflows are running;
+    # renders nothing visible.
     if has_active_workflows():
-        event_fired = submission_states.update_event.wait(timeout=0.3)
-        if event_fired:
-            submission_states.update_event.clear()
+        _poll_for_updates()
+
+
+@st.fragment(run_every="0.3s")
+def _poll_for_updates() -> "None":
+    """
+    fragment that bridges background agent threads and the UI
+    checks if any agent has written a state update and triggers a full page
+    rerun only when one is detected
+
+    does not block the main thread, so widget interactions remain responsive
+    """
+    if not has_active_workflows():
+        return None
+
+    if submission_states.update_event.is_set():
+        submission_states.update_event.clear()
         st.rerun()
 
 
