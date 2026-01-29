@@ -970,6 +970,7 @@ def main() -> "None":
         st.session_state.conversations = {}
 
     # render chat messages for selected conversation
+    st.button("🔄 Refresh Chat", help="Manual Chat Refresh to see latest updates")
     display_chat_fragment()
 
     # chat input at bottom (standard chat interface pattern)
@@ -1043,9 +1044,6 @@ def _poll_for_updates() -> "None":
 
     does not block the main thread, so widget interactions remain responsive
     """
-    if not has_active_workflows():
-        return None
-
     if submission_states.update_event.is_set():
         submission_states.update_event.clear()
         st.rerun()
