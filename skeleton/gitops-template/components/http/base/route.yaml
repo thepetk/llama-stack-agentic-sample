@@ -2,6 +2,8 @@
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
   labels:
     app.kubernetes.io/instance: ${{ values.name }}
     app.kubernetes.io/managed-by: kustomize

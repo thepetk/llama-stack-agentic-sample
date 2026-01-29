@@ -2,6 +2,8 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   name: ${{ values.name }}-app-config
   labels:
     app.kubernetes.io/instance: ${{ values.name }}
