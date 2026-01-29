@@ -165,16 +165,6 @@ def get_or_create_executor() -> "ThreadPoolExecutor":
     return st.session_state.thread_executor
 
 
-def get_tasks_dict() -> "Any":
-    """
-    gets tasks dictionary from session state (for ingestion)
-    """
-    if "async_tasks" not in st.session_state:
-        # structure to store running async tasks (ingestion only)
-        st.session_state.async_tasks = {}
-    return st.session_state.async_tasks
-
-
 def get_futures_dict() -> "dict[str, Future[None]]":
     """
     gets futures dictionary from session state
@@ -184,6 +174,22 @@ def get_futures_dict() -> "dict[str, Future[None]]":
         # structure to store all running workflow futures
         st.session_state.workflow_futures = {}
     return st.session_state.workflow_futures
+
+
+def has_active_workflows() -> "bool":
+    """
+    checks if any workflow futures are still running.
+    Cleans up completed futures to prevent memory growth.
+    """
+    futures = get_futures_dict()
+    if not futures:
+        return False
+
+    completed_ids = [sid for sid, future in futures.items() if future.done()]
+    for sid in completed_ids:
+        del futures[sid]
+
+    return len(futures) > 0
 
 
 def get_ingestion_state() -> "dict[str, Any]":
@@ -322,16 +328,10 @@ async def check_and_run_ingestion_if_needed() -> "None":
             ingestion_state["pipelines"] = pipelines
             ingestion_state["vector_store_count"] = vector_store_count
         else:
-            # vector stores missing - start async ingestion in background
+            # vector stores missing - run ingestion to completion
             logger.info("Some vector stores missing, starting ingestion...")
             ingestion_state["status"] = "running"
-
-            loop = get_or_create_event_loop()
-            tasks = get_tasks_dict()
-            ingestion_task = loop.create_task(run_ingestion_pipeline())
-            # track ingestion task separately
-            tasks["__ingestion__"] = ingestion_task
-            logger.info("Ingestion pipeline task submitted")
+            await run_ingestion_pipeline()
 
     except Exception as e:
         logger.error(f"Failed to check vector stores: {e}")
@@ -404,9 +404,7 @@ async def run_ingestion_pipeline() -> "None":
         logger.error(f"Ingestion pipeline failed: {e}", exc_info=True)
 
 
-def _render_exchange_response(
-    state: "WorkflowState", AGENT_ICONS: "dict[str, str]"
-) -> "None":
+def _render_exchange_response(state: "WorkflowState") -> "None":
     """
     renders the agent response for a single exchange
     """
@@ -664,24 +662,6 @@ def run_workflow_task(
     _run_async_in_thread(run_workflow_task_async(workflow, question, submission_id))
 
 
-def progress_event_loop() -> "None":
-    """
-    progress the event loop to advance all pending tasks without blocking UI
-    (Used only for ingestion tasks)
-    """
-    loop = get_or_create_event_loop()
-    tasks = get_tasks_dict()
-
-    pending_tasks = [task for task in tasks.values() if not task.done()]
-
-    if pending_tasks:
-        # run event loop to progress async tasks without blocking UI
-        try:
-            loop.run_until_complete(asyncio.sleep(0))
-        except Exception as e:
-            logger.error(f"Error progressing event loop: {e}")
-
-
 def submit_workflow_task(
     workflow: "Workflow", question: "str", submission_id: "str"
 ) -> "None":
@@ -699,23 +679,44 @@ def submit_workflow_task(
     logger.info(f"Submitted workflow task for {submission_id} to thread pool")
 
 
-@st.fragment(run_every="0.5s")
+def _on_new_conversation() -> "None":
+    """
+    callback for the New Conversation button
+    """
+    st.session_state.selected_submission = None
+
+
+def _on_select_conversation(conversation_id: "str") -> "None":
+    """
+    callback for selecting an existing conversation
+    """
+    st.session_state.selected_submission = conversation_id
+
+
+def _on_clear_all() -> "None":
+    """
+    callback for the Clear All Conversations button
+    """
+    st.session_state.active_submissions = []
+    st.session_state.selected_submission = None
+    st.session_state.conversations = {}
+
+
 def display_sidebar_conversations() -> "None":
     """
-    fragment that displays conversation list with auto-refresh for status updates
+    displays conversation list in the sidebar.
+    Status updates are driven by conditional polling in main().
     """
     col1, col2 = st.columns([4, 1])
     with col1:
         st.subheader("💬 Conversations")
     with col2:
-        if st.button("➕", help="New conversation", use_container_width=True):
-            st.session_state.selected_submission = None
-            # increment version to ensure clean UI state
-            st.session_state.conversation_version = (
-                st.session_state.get("conversation_version", 0) + 1
-            )
-            # full page rerun to update both sidebar and chat
-            st.rerun()
+        st.button(
+            "➕",
+            help="New conversation",
+            use_container_width=True,
+            on_click=_on_new_conversation,
+        )
 
     # initialize conversation tracking state
     if "active_submissions" not in st.session_state:
@@ -767,33 +768,19 @@ def display_sidebar_conversations() -> "None":
                 if st.session_state.selected_submission == conversation_id
                 else "secondary"
             )
-            if st.button(
+            st.button(
                 f"{status_icon} {question_preview}{exchange_count_str}",
                 key=f"select_{conversation_id}",
                 type=button_type,
                 use_container_width=True,
-            ):
-                st.session_state.selected_submission = conversation_id
-                # increment version to force full UI refresh
-                st.session_state.conversation_version = (
-                    st.session_state.get("conversation_version", 0) + 1
-                )
-                # full page rerun to update both sidebar and chat
-                st.rerun()
+                on_click=_on_select_conversation,
+                args=(conversation_id,),
+            )
     else:
         st.info("No conversations yet")
 
     # clear all conversations button
-    if st.button("Clear All Conversations"):
-        st.session_state.active_submissions = []
-        st.session_state.selected_submission = None
-        st.session_state.conversations = {}
-        # increment version to ensure complete UI refresh
-        st.session_state.conversation_version = (
-            st.session_state.get("conversation_version", 0) + 1
-        )
-        # full page rerun to update both sidebar and chat
-        st.rerun()
+    st.button("Clear All Conversations", on_click=_on_clear_all)
 
     st.divider()
 
@@ -814,14 +801,12 @@ def display_sidebar_conversations() -> "None":
         )
 
 
-@st.fragment(run_every="0.5s")
 def display_chat_fragment() -> "None":
     """
-    Fragment that displays chat messages with auto-refresh for active workflows
+    displays chat messages for the selected conversation.
+    Updates during active workflows are driven by conditional polling in main().
     """
-    # render conversation content with versioned key for clean refreshes
-    container_key = f"chat_area_{st.session_state.conversation_version}"
-    chat_container = st.container(key=container_key)
+    chat_container = st.container()
 
     with chat_container:
         if st.session_state.selected_submission:
@@ -838,7 +823,7 @@ def display_chat_fragment() -> "None":
                 submission_id = exchange.get("submission_id", "")
                 current_state = submission_states.get(submission_id, exchange)
 
-                _render_exchange_response(current_state, AGENT_ICONS)
+                _render_exchange_response(current_state)
 
 
 def main() -> "None":
@@ -848,8 +833,6 @@ def main() -> "None":
         layout="wide",
         initial_sidebar_state="expanded",
     )
-    # progress async tasks on each rerun
-    progress_event_loop()
 
     # check llama-stack health on first load
     llama_stack_status = get_llama_stack_status()
@@ -980,11 +963,7 @@ def main() -> "None":
     if "conversations" not in st.session_state:
         st.session_state.conversations = {}
 
-    # track conversation version to force full rerenders on switch
-    if "conversation_version" not in st.session_state:
-        st.session_state.conversation_version = 0
-
-    # render chat messages using fragment (auto-refreshes when workflows are active)
+    # render chat messages for selected conversation
     display_chat_fragment()
 
     # chat input at bottom (standard chat interface pattern)
@@ -1042,119 +1021,14 @@ def main() -> "None":
         # rerun to update sidebar with new conversation
         st.rerun()
 
-
-def display_submission_details(submission_id: "str") -> "None":
-    """Display detailed information about a submission"""
-    state = submission_states.get(submission_id)
-
-    if not state:
-        st.error("Submission not found")
-        return
-
-    is_complete = state.get("workflow_complete", False)
-    decision = state.get("decision", "")
-    decision_lower = decision.lower()
-
-    # show workflow status with appropriate styling
-    if decision_lower == "error":
-        st.error("❌ Workflow Failed - Error occurred during processing")
-    elif decision_lower == "unsafe":
-        st.error("⚠️ Workflow Blocked - Content flagged by moderation")
-    elif decision_lower == "unknown":
-        st.error("❓ Workflow Failed - Unable to classify request")
-    elif is_complete:
-        st.success(f"✅ Workflow Complete - Decision: {decision.upper()}")
-    else:
-        # still processing - show refresh button
-        st.info(f"⏳ Processing... Current stage: {decision or 'Classifying'}")
-        if st.button("🔄 Refresh", key=f"refresh_{submission_id}"):
-            st.rerun()
-
-    st.markdown("### 📋 Submission Details")
-
-    # display submission metadata
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f"**Submission ID:** `{submission_id}`")
-    with col2:
-        st.markdown(f"**Status:** {decision or 'Pending'}")
-
-    st.markdown("---")
-
-    with st.expander("📝 Input Question", expanded=True):
-        st.write(state.get("input", "N/A"))
-
-    agent_timings = state.get("agent_timings", {})
-    rag_query_time = state.get("rag_query_time", 0.0)
-
-    if agent_timings or rag_query_time > 0:
-        with st.expander("⏱️ Response Times", expanded=True):
-            # show individual agent processing times
-            if agent_timings:
-                st.markdown("**Agent Processing Times:**")
-                for agent_name, duration in agent_timings.items():
-                    st.metric(
-                        label=f"{agent_name} Agent",
-                        value=f"{duration:.2f}s",
-                    )
-
-            if rag_query_time > 0:
-                st.markdown("**Vector Store Query Time:**")
-                st.metric(
-                    label="RAG Query",
-                    value=f"{rag_query_time:.2f}s",
-                )
-
-            total_agent_time = sum(agent_timings.values()) if agent_timings else 0
-            if total_agent_time > 0:
-                st.markdown("**Total Processing Time:**")
-                st.metric(
-                    label="Total",
-                    value=f"{total_agent_time:.2f}s",
-                )
-
-    # display agent's response
-    if state.get("classification_message"):
-        with st.expander("🔍 Response", expanded=True):
-            active_agent = state.get("active_agent", "")
-            if active_agent:
-                st.markdown(f"**Handled by:** {active_agent} Department")
-            st.write(state["classification_message"])
-
-    # display RAG source documents if RAG was used
-    rag_sources = state.get("rag_sources", [])
-    if rag_sources:
-        with st.expander(
-            f"📚 RAG Sources ({len(rag_sources)} documents)", expanded=False
-        ):
-            for i, source in enumerate(rag_sources, 1):
-                filename = source.get("filename", source.get("file_name", "Unknown"))
-                github_url = source.get("url", "")
-                snippet = source.get("snippet", "")
-
-                # show filename with GitHub link if available
-                if github_url:
-                    st.markdown(f"**{i}.** [{filename}]({github_url})")
-                else:
-                    st.markdown(f"**{i}.** {filename}")
-
-                # show snippet preview if available
-                if snippet:
-                    st.caption(f"Excerpt: {snippet}")
-
-                if source.get("chunk_id"):
-                    st.caption(f"Chunk: {source['chunk_id']}")
-
-    if state.get("mcp_output"):
-        with st.expander("🔧 Preliminary Diagnostics", expanded=False):
-            st.code(state["mcp_output"], language="text")
-
-    if state.get("github_issue"):
-        with st.expander("🔗 GitHub Tracking Issue", expanded=True):
-            st.markdown(f"[{state['github_issue']}]({state['github_issue']})")
-
-    if st.checkbox("Show Raw State (Debug)", key=f"debug_{submission_id}"):
-        st.json(state)
+    # event-driven rerun: block until a background agent writes to submission_states.
+    # timeout ensures Streamlit can process queued user interactions (button clicks,
+    # chat input) since Python cannot interrupt a blocking Event.wait() call.
+    if has_active_workflows():
+        event_fired = submission_states.update_event.wait(timeout=0.3)
+        if event_fired:
+            submission_states.update_event.clear()
+        st.rerun()
 
 
 if __name__ == "__main__":
