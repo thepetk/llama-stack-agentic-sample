@@ -29,7 +29,9 @@ from src.utils import (
 )
 from src.workflow import Workflow
 
-# lock to prevent concurrent ingestion from multiple Streamlit sessions
+# lock shared across all Streamlit sessions in this process. Streamlit runs
+# each session in a separate thread but within the same process, so this
+# lock will handle parallel ingestion attempts.
 _ingestion_lock = threading.Lock()
 
 # API_KEY: OpenAI API key (not used directly but may be needed
@@ -483,6 +485,7 @@ def _render_exchange_response(state: "WorkflowState") -> "None":
                 f"Routed to {dept_icon} **{dept_name}**"
             )
 
+    # handle active agent response, completion, or error
     if active_agent or is_complete or is_error:
         if is_error and not active_agent:
             agent_icon = AGENT_ICONS.get("Classification", "🔍")
@@ -560,6 +563,7 @@ def _render_exchange_response(state: "WorkflowState") -> "None":
                         "⚠️ GitHub Issue Not Created: GitHub MCP Server Unavailable"
                     )
 
+            # handle completion of workflow
             if is_complete:
                 agent_timings = state.get("agent_timings", {})
                 if agent_timings:
@@ -920,6 +924,11 @@ def main() -> "None":
             # status is "pending", trigger automatic check (will transition
             # to "skipped" or "running")
             st.info("🔍 Checking vector stores...")
+            # using _ingestion_lock here to block multiple streamlit sessions
+            # ingesting in parallel. First session gets the lock and creates
+            # vector stores. All other sessions will get the lock only after
+            # that's completed, check again (stores now exist), and finally
+            # will skip ingestion.
             with _ingestion_lock:
                 loop = get_or_create_event_loop()
                 loop.run_until_complete(check_and_run_ingestion_if_needed())
