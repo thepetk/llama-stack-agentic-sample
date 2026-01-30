@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import threading
 from typing import Any
 
 from llama_stack_client import LlamaStackClient
@@ -15,7 +16,20 @@ log_level = getattr(logging, log_level_str, logging.INFO)
 logging.basicConfig(level=log_level)
 logger = logging.getLogger(__name__)
 
-submission_states: "dict[str, WorkflowState]" = {}
+
+class ObservableDict(dict):
+    """Dict subclass that signals a threading.Event on every write."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.update_event = threading.Event()
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self.update_event.set()
+
+
+submission_states: "ObservableDict[str, WorkflowState]" = ObservableDict()
 
 
 def clean_text(text: "str") -> "str":

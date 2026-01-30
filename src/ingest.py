@@ -79,6 +79,7 @@ class IngestionService:
             if _config["vector_db"].get("chunk_size_in_tokens")
             else DEFAULT_CHUNK_SIZE_IN_TOKENS
         )
+        # ingestion_mode: async vs sync
         self.ingestion_mode = (
             _config["vector_db"].get("ingestion_mode", DEFAULT_INGESTION_MODE).lower()
         )
@@ -180,6 +181,8 @@ class IngestionService:
                 logger.error(f"Pipeline '{p_title}' has invalid source type")
                 continue
 
+            # build the Pipeline object for each different pipeline
+            # found inside the ingestion_config.yaml
             pipeline = Pipeline(
                 name=str(_pipeline_config["name"]),
                 enabled=enabled_bool,
@@ -246,6 +249,10 @@ class IngestionService:
     def _create_local_file(
         self, content: "ContentFile", path: "str", download_dir: "str"
     ) -> "str":
+        """
+        creates a local file with the content of the
+        given github file
+        """
         logger.debug(f"Creating local file for {content.path}...")
         file_content = content.decoded_content
 
@@ -456,16 +463,17 @@ class IngestionService:
             markdown_text = result.document.export_to_markdown()
             cleaned_text = clean_text(markdown_text)
 
-            # Create temp file with original filename (not random temp name)
-            # This preserves the filename in Llama Stack for metadata recovery
+            # create temp file with original filename (not random temp name)
+            # this preserves the filename in Llama Stack for metadata recovery
             temp_dir = tempfile.mkdtemp()
-            # Replace .pdf extension with .txt for the processed content
+            # replace .pdf extension with .txt for the processed content
             processed_filename = original_filename
             if processed_filename.lower().endswith(".pdf"):
                 processed_filename = processed_filename[:-4] + ".txt"
             tmp_file_path = os.path.join(temp_dir, processed_filename)
 
             try:
+                # create file in llama stack
                 with open(tmp_file_path, "w", encoding="utf-8") as tmp_file:
                     tmp_file.write(cleaned_text)
 
@@ -486,6 +494,7 @@ class IngestionService:
                 logger.info(f"Mapped file_id '{file_id}' -> '{original_filename}'")
                 return file_create_response
             finally:
+                # clean files
                 if os.path.exists(tmp_file_path):
                     os.unlink(tmp_file_path)
                 if os.path.exists(temp_dir):
@@ -607,6 +616,24 @@ class IngestionService:
                         f"Could not find existing vector store '{vector_store_name}'"
                     )
                     return False
+
+                # check if the store already has files — skip insertion to
+                # avoid duplicate documents from parallel sessions
+                try:
+                    existing_files = await asyncio.to_thread(
+                        self.client.vector_stores.files.list,
+                        vector_store_id=vector_store.id,
+                    )
+                    if existing_files and len(list(existing_files)) > 0:
+                        logger.info(
+                            f"Vector store '{vector_store_name}' already has files, "
+                            f"skipping document insertion"
+                        )
+                        return True
+                except Exception as list_err:
+                    logger.debug(
+                        f"Could not list files for '{vector_store_name}': {list_err}"
+                    )
             else:
                 logger.error(f"Failed to register vector DB '{vector_store_name}': {e}")
                 return False
@@ -672,9 +699,9 @@ class IngestionService:
             logger.info(f"Pipeline '{pipeline.name}' is disabled, skipping")
             return True
 
+        # fetching important values from pipeline
         vector_store_name = pipeline.vector_store_name
         source = pipeline.source
-
         category = (
             vector_store_name.split("-")[0] if vector_store_name else pipeline.name
         )
@@ -696,7 +723,8 @@ class IngestionService:
                         f"Pipeline '{pipeline.name}' has None path for GitHub source"
                     )
                     return False
-                # github fetching is synchronous, run in thread
+                # github fetching is synchronous to avoid rate-limits,
+                # runs in thread
                 pdf_files = await asyncio.to_thread(
                     self.fetch_from_github,
                     pipeline.source_config.url,
@@ -716,6 +744,7 @@ class IngestionService:
                 logger.error(f"Unknown source type: {source}")
                 return False
 
+            # if no pdf files found, log and skip
             if not pdf_files:
                 logger.warning(f"No PDF files found for pipeline '{pipeline.name}'")
                 return False
