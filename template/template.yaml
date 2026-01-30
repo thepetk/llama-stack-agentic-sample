@@ -229,12 +229,8 @@ spec:
           type: boolean
           default: false
           ui:widget: checkbox
-      dependencies:
-        secretsAcknowledgment:
-          oneOf:
-            - properties:
-                secretsAcknowledgment:
-                  const: true
+          enum:
+            - true
 
     # ==================== Deployment Information ====================
     - title: Deployment Information
