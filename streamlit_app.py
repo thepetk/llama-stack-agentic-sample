@@ -32,6 +32,7 @@ from src.workflow import Workflow
 # lock shared across all Streamlit sessions in this process. Streamlit runs
 # each session in a separate thread but within the same process, so this
 # lock will handle parallel ingestion attempts.
+# see: https://docs.streamlit.io/develop/concepts/design/multithreading
 _ingestion_lock = threading.Lock()
 
 # API_KEY: OpenAI API key (not used directly but may be needed
