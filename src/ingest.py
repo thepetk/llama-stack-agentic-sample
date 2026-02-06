@@ -580,154 +580,64 @@ class IngestionService:
             )
             return False
 
-    async def _get_existing_filenames(self, vector_store_id: "str") -> "set[str]":
-        """
-        retrieves the set of filenames already present in a vector store
-        and normalizes them for comparison with documents to be inserted
-        """
-        existing_filenames: "set[str]" = set()
-        try:
-            # get all file IDs in the vector store
-            store_files = await asyncio.to_thread(
-                self.client.vector_stores.files.list,
-                vector_store_id=vector_store_id,
-            )
-            store_file_ids: "set[str]" = set()
-            for file_info in store_files or []:
-                file_id = getattr(file_info, "id", None) or getattr(
-                    file_info, "file_id", None
-                )
-                if file_id:
-                    store_file_ids.add(file_id)
-
-            if not store_file_ids:
-                return existing_filenames
-
-            # list all files to get filenames
-            all_files = await asyncio.to_thread(self.client.files.list)
-            for f in all_files or []:
-                file_id = getattr(f, "id", None)
-                if file_id and file_id in store_file_ids:
-                    filename = getattr(f, "filename", None)
-                    if filename:
-                        base = os.path.splitext(str(filename))[0].lower()
-                        existing_filenames.add(base)
-        except Exception as e:
-            logger.debug(
-                f"Could not list files for vector store {vector_store_id}: {e}"
-            )
-        return existing_filenames
-
-    def _normalize_doc_filename(self, doc: "File") -> "str":
-        """
-        returns the normalized filename for a document.
-        """
-        meta = self.file_metadata.get(doc.id, {})
-        original = meta.get("original_filename", "")
-        if original:
-            return os.path.splitext(original)[0].lower()
-        return ""
-
     async def create_vector_db(
         self, vector_store_name: "str", documents: "list[File]"
     ) -> "bool":
         """
         creates vector database and inserts documents.
         uses async (concurrent) or sync (sequential) mode based on config.
-
-        before inserting any docs, it checks whether each document already
-        exists in the vector store (by filename).
         """
         if not documents:
             logger.warning(f"No documents to insert for {vector_store_name}")
             return False
 
-        # check if a vector store with this name already exists
+        logger.info(f"Creating vector database: {vector_store_name}")
+
         vector_store = None
-        existing_filenames: "set[str]" = set()
         try:
-            all_stores = await asyncio.to_thread(self.client.vector_stores.list)
-            for vs in all_stores or []:
-                if vs.name == vector_store_name:
-                    vector_store = vs
-                    existing_filenames = await self._get_existing_filenames(vs.id)
-                    break
+            vector_store = await asyncio.to_thread(
+                self.client.vector_stores.create, name=vector_store_name
+            )
+            self.vector_store_ids.append(vector_store.id)
         except Exception as e:
-            logger.debug(f"Could not check existing vector stores: {e}")
-
-        # filter out documents whose filenames are already in the store
-        if existing_filenames:
-            new_documents = []
-            for doc in documents:
-                doc_base = self._normalize_doc_filename(doc)
-                if doc_base and doc_base in existing_filenames:
-                    logger.info(
-                        f"Document '{
-                            self.file_metadata.get(doc.id, {}).get(
-                                'original_filename', doc.id
-                            )
-                        }' "
-                        f"already exists in '{vector_store_name}', "
-                        f"skipping (declined duplicate)"
-                    )
-                else:
-                    new_documents.append(doc)
-
-            if not new_documents:
+            error_msg = str(e)
+            if "already exists" in error_msg.lower():
                 logger.info(
-                    f"All documents already exist in '{vector_store_name}', "
-                    f"skipping ingestion"
+                    f"Vector DB '{vector_store_name}' already exists, continuing..."
                 )
-                # even if we skip ingestion, we still
-                # have to add the vector store ID
-                # to vector_store_ids
-                if vector_store:
-                    self.vector_store_ids.append(vector_store.id)
-                return True
-            documents = new_documents
 
-        # create vector store if it doesn't exist yet
-        if vector_store is None:
-            logger.info(f"Creating vector database: {vector_store_name}")
-            try:
-                vector_store = await asyncio.to_thread(
-                    self.client.vector_stores.create, name=vector_store_name
-                )
-                self.vector_store_ids.append(vector_store.id)
-            except Exception as e:
-                error_msg = str(e)
-                if "already exists" in error_msg.lower():
-                    logger.info(
-                        f"Vector DB '{vector_store_name}' already exists "
-                        f"(created by another instance), continuing..."
-                    )
-                    # find the existing store
-                    vector_stores = await asyncio.to_thread(
-                        self.client.vector_stores.list
-                    )
-                    for vs in vector_stores or []:
-                        if vs.name == vector_store_name:
-                            vector_store = vs
-                            break
-                    if vector_store is None:
-                        logger.error(
-                            f"Could not find existing vector store "
-                            f"'{vector_store_name}'"
-                        )
-                        return False
-                    self.vector_store_ids.append(vector_store.id)
-                else:
+                vector_stores = await asyncio.to_thread(self.client.vector_stores.list)
+                for vs in vector_stores or []:
+                    if vs.name == vector_store_name:
+                        vector_store = vs
+                        break
+
+                if vector_store is None:
                     logger.error(
-                        f"Failed to register vector DB '{vector_store_name}': {e}"
+                        f"Could not find existing vector store '{vector_store_name}'"
                     )
                     return False
-        else:
-            if vector_store.id not in self.vector_store_ids:
-                self.vector_store_ids.append(vector_store.id)
 
-        if vector_store is None:
-            logger.error(f"Vector store '{vector_store_name}' is unexpectedly None")
-            return False
+                # check if the store already has files — skip insertion to
+                # avoid duplicate documents from parallel sessions
+                try:
+                    existing_files = await asyncio.to_thread(
+                        self.client.vector_stores.files.list,
+                        vector_store_id=vector_store.id,
+                    )
+                    if existing_files and len(list(existing_files)) > 0:
+                        logger.info(
+                            f"Vector store '{vector_store_name}' already has files, "
+                            f"skipping document insertion"
+                        )
+                        return True
+                except Exception as list_err:
+                    logger.debug(
+                        f"Could not list files for '{vector_store_name}': {list_err}"
+                    )
+            else:
+                logger.error(f"Failed to register vector DB '{vector_store_name}': {e}")
+                return False
 
         try:
             if self.ingestion_mode == "async":
