@@ -71,7 +71,8 @@ class Workflow:
 
         messages = self._convert_messages_to_openai_format(state)
         completion = self.rag_service.openai_client.chat.completions.create(
-            model=INFERENCE_MODEL, messages=messages
+            model=INFERENCE_MODEL,
+            messages=messages,  # type: ignore[invalid-argument-type]
         )
         return completion.choices[0].message.content or ""
 
@@ -205,7 +206,7 @@ class Workflow:
                     rag_response = client_to_use.responses.create(
                         model=INFERENCE_MODEL,
                         input=rag_prompt,
-                        tools=[file_search_tool],
+                        tools=[file_search_tool],  # type: ignore[invalid-argument-type]
                     )
                     rag_end_time = time.time()
                     state["rag_query_time"] = rag_end_time - rag_start_time

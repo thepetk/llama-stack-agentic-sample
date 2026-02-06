@@ -13,3 +13,11 @@ class NoVectorStoresFoundError(Exception):
     """
 
     pass
+
+
+class IngestionPipelineError(Exception):
+    """
+    Raised when all ingestion pipelines fail.
+    """
+
+    pass

@@ -31,6 +31,11 @@ class ObservableDict(dict):
 
 submission_states: "ObservableDict[str, WorkflowState]" = ObservableDict()
 
+# lock shared across all Streamlit sessions in this process,
+# shared through the sys.modules accross Streamlit reruns.
+# see: https://docs.streamlit.io/develop/concepts/design/multithreading
+ingestion_lock = threading.Lock()
+
 
 def clean_text(text: "str") -> "str":
     """

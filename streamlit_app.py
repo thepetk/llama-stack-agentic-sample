@@ -1,7 +1,6 @@
 import asyncio
 import json
 import os
-import threading
 import time
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -24,16 +23,11 @@ from src.responses import RAGService
 from src.types import Pipeline, WorkflowState
 from src.utils import (
     check_llama_stack_availability,
+    ingestion_lock,
     logger,
     submission_states,
 )
 from src.workflow import Workflow
-
-# lock shared across all Streamlit sessions in this process. Streamlit runs
-# each session in a separate thread but within the same process, so this
-# lock will handle parallel ingestion attempts.
-# see: https://docs.streamlit.io/develop/concepts/design/multithreading
-_ingestion_lock = threading.Lock()
 
 # API_KEY: OpenAI API key (not used directly but may be needed
 API_KEY = os.getenv("OPENAI_API_KEY", "not applicable")
@@ -930,7 +924,7 @@ def main() -> "None":
             # vector stores. All other sessions will get the lock only after
             # that's completed, check again (stores now exist), and finally
             # will skip ingestion.
-            with _ingestion_lock:
+            with ingestion_lock:
                 loop = get_or_create_event_loop()
                 loop.run_until_complete(check_and_run_ingestion_if_needed())
             st.rerun()

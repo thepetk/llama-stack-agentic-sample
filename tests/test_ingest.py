@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 import yaml
 
+from src.exceptions import IngestionPipelineError
 from src.ingest import IngestionService
 from src.types import Pipeline, SourceConfig, SourceTypes
 
@@ -591,7 +592,7 @@ class TestRun:
 
         with patch.object(service, "process_pipeline", return_value=False):
             with patch.object(service, "save_file_metadata"):
-                with pytest.raises(SystemExit):
+                with pytest.raises(IngestionPipelineError):
                     await service.run()
 
     @pytest.mark.anyio
