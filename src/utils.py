@@ -31,8 +31,20 @@ class ObservableDict(dict):
 
 submission_states: "ObservableDict[str, WorkflowState]" = ObservableDict()
 
-# lock shared across all Streamlit sessions in this process,
-# shared through the sys.modules accross Streamlit reruns.
+# lock/mutex shared across all Streamlit sessions in this process.
+#
+# Fix: commit 61398cf565654f2e2d2da5247af488ec098b2d2e
+#
+# the lock was moved in utils.py (from streamlit_app.py) in order to
+# be cached similar to all imported modules (sys.modules) of Python:
+# - https://docs.python.org/3/reference/import.html#the-module-cache
+#
+# this allows us to keep the same lock between different streamlit
+# sessions (of the same streamlit process). With the previous approach,
+# (lock object was located in streamlit_app.py), each streamlit session
+# was generating again the lock object (since streamlit_app.py was
+# re-run for each session)
+
 # see: https://docs.streamlit.io/develop/concepts/design/multithreading
 ingestion_lock = threading.Lock()
 

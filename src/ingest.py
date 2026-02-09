@@ -586,6 +586,9 @@ class IngestionService:
         """
         creates vector database and inserts documents.
         uses async (concurrent) or sync (sequential) mode based on config.
+
+        all (LlamaStack) client calls are wrapped in thread (asyncio.to_thread)
+        to avoid blocking the concurrent execution.
         """
         if not documents:
             logger.warning(f"No documents to insert for {vector_store_name}")
@@ -595,6 +598,9 @@ class IngestionService:
 
         vector_store = None
         try:
+            # asyncio.to_thread moves the synchronous llama-stack-client
+            # call to a separate thread so the asyncio (event) loop keeps
+            # running.
             vector_store = await asyncio.to_thread(
                 self.client.vector_stores.create, name=vector_store_name
             )
@@ -606,6 +612,8 @@ class IngestionService:
                     f"Vector DB '{vector_store_name}' already exists, continuing..."
                 )
 
+                # vector store exists, find it by name to get its ID
+                # to continue ingestion
                 vector_stores = await asyncio.to_thread(self.client.vector_stores.list)
                 for vs in vector_stores or []:
                     if vs.name == vector_store_name:
@@ -618,8 +626,10 @@ class IngestionService:
                     )
                     return False
 
-                # check if the store already has files — skip insertion to
-                # avoid duplicate documents from parallel sessions
+                # if the existing store already contains files, we skip
+                # ingestion entirely. Simple rule to prevent duplicate documents
+                # when multiple parallel sessions race to populate the same store.
+                # TODO: investigate more robust approaches
                 try:
                     existing_files = await asyncio.to_thread(
                         self.client.vector_stores.files.list,
@@ -639,6 +649,10 @@ class IngestionService:
                 logger.error(f"Failed to register vector DB '{vector_store_name}': {e}")
                 return False
 
+        # ingest documents into the vector store.
+        # - async mode: all documents are inserted concurrently using
+        # asyncio.gather (each ingestion action runs in its own thread).
+        # - sync mode: documents are inserted one at a time sequentially.
         try:
             if self.ingestion_mode == "async":
                 logger.info(
